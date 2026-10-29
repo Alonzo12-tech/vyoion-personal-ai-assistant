@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#090c10">
+  <meta name="description" content="vyoiōn is a portable healthcare companion for understanding medical reports.">
+  <title>vyoiōn — your health companion</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand-lockup">
+        <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></div>
+        <div><div class="brand-name">vyoiōn</div><div class="brand-caption">your health companion</div></div>
+      </div>
+      <div class="topbar-right">
+        <div class="connection-pill"><span class="status-dot"></span><span id="connection-label">Ready when you are</span></div>
+        <button class="icon-button" id="settings-open" type="button" aria-label="Settings" title="Settings">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-1.7 2.94-.09-.02a1.7 1.7 0 0 0-1.74.45l-.06.06h-3.4l-.02-.09a1.7 1.7 0 0 0-1.3-1.3l-.1-.02-1.7-2.95.06-.06A1.7 1.7 0 0 0 9.7 14l-.02-.09V10.5l.09-.02a1.7 1.7 0 0 0 1.3-1.3l.02-.1 2.95-1.7.06.06a1.7 1.7 0 0 0 1.88.34l.06-.02 2.94 1.7-.02.09a1.7 1.7 0 0 0 .45 1.74l.06.06v3.4z" transform="translate(-3.4 -1.8)"></path></svg>
+        </button>
+      </div>
+    </header>
+
+    <div class="app-body">
+      <aside class="sidebar">
+        <button class="new-chat-button" id="new-chat" type="button"><span class="plus-icon">＋</span> New chat</button>
+        <div class="side-label">YOUR SPACE</div>
+        <nav class="mode-nav" aria-label="Chat mode">
+          <button class="mode-button active" data-mode="text" type="button"><span class="nav-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 5.5h15v11h-9l-5 3v-14z"></path><path d="M8 9h8M8 12.5h5"></path></svg></span><span>Text chat</span><span class="nav-arrow">›</span></button>
+          <button class="mode-button" data-mode="voice" type="button"><span class="nav-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3.5" width="6" height="11" rx="3"></rect><path d="M5.8 11.5a6.2 6.2 0 0 0 12.4 0M12 17.7v3M9 20.7h6"></path></svg></span><span>Voice chat</span><span class="nav-arrow">›</span></button>
+          <button class="mode-button" data-mode="video" type="button"><span class="nav-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="6" width="12" height="12" rx="2"></rect><path d="m15.5 10 5-3v10l-5-3"></path></svg></span><span>Video chat</span><span class="nav-arrow">›</span></button>
+        </nav>
+        <div class="sidebar-spacer"></div>
+        <div class="sidebar-note">
+          <div class="privacy-glyph"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5 19 6v5.2c0 4.2-2.9 7.5-7 9.3-4.1-1.8-7-5.1-7-9.3V6l7-2.5z"></path><path d="m9 12 2 2 4-4"></path></svg></div>
+          <div><strong>Your space stays yours</strong><p>Chats stay in this session and are cleared when you close the app.</p></div>
+        </div>
+        <button class="about-button" id="about-open" type="button"><span class="about-symbol">i</span> About vyoiōn</button>
+      </aside>
+
+      <main class="workspace mode-text" id="workspace">
+        <section class="workspace-heading">
+          <div>
+            <div class="eyebrow"><span class="eyebrow-line"></span> HEALTH, MADE CLEAR</div>
+            <h1 id="mode-title">Let’s make sense of it.</h1>
+            <p class="mode-description" id="mode-description">Ask a question or bring a report. I’ll explain it in clear, everyday language.</p>
+          </div>
+          <div class="thinking-control" role="group" aria-label="Thinking depth for text replies" title="Applies to written replies and single-frame questions. Off uses the minimum reasoning available for this cloud model. After 3 seconds without text, other levels retry at the minimum. Retries may use extra API quota. Live voice and video use their real-time conversation mode.">
+            <span class="thinking-label">Thinking</span>
+            <div class="thinking-options" role="group" aria-label="Choose thinking depth">
+              <button type="button" class="thinking-option active" data-thinking="off" aria-pressed="true">Off</button>
+              <button type="button" class="thinking-option" data-thinking="low" aria-pressed="false">Low</button>
+              <button type="button" class="thinking-option" data-thinking="medium" aria-pressed="false">Mid</button>
+              <button type="button" class="thinking-option" data-thinking="high" aria-pressed="false">High</button>
+            </div>
+          </div>
+        </section>
+        <div class="key-notice" id="key-notice" hidden><span class="notice-icon">⌁</span><span>Cloud setup needed: add your API key in Settings to start a conversation.</span><button type="button" id="notice-settings">Set up key</button></div>
+
+        <section class="voice-stage" id="voice-stage" aria-label="Voice conversation">
+          <div class="voice-orb-wrap"><div class="orb-glow"></div><canvas id="voice-orb" aria-label="Voice reactive vyoiōn sphere"></canvas><div class="orb-core" aria-hidden="true"></div></div>
+          <div class="voice-state" id="voice-state">Ready to listen</div>
+          <p class="voice-hint" id="voice-hint">Tap the microphone, then speak naturally.</p>
+          <button class="mic-button" id="mic-toggle" type="button" aria-label="Start voice chat"><svg class="mic-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"></rect><path d="M5.8 11a6.2 6.2 0 0 0 12.4 0M12 17.2v3M9 20.2h6"></path></svg></button>
+      <div class="voice-caption">Live voice sends microphone audio to the cloud while connected; API usage may be billed. Stop whenever you like.</div>
+        </section>
+
+        <section class="video-panel" id="video-panel" aria-label="Camera preview">
+          <div class="video-toolbar">
+            <div class="video-title"><span class="camera-status" id="camera-status"></span><span id="camera-title">Camera preview</span></div>
+            <div class="video-toolbar-actions"><button class="small-action" id="camera-fullscreen" type="button" title="Full screen camera"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4H4v4M16 4h4v4M20 16v4h-4M4 16v4h4"></path></svg><span>Full screen</span></button></div>
+          </div>
+          <div class="live-session-row">
+            <div class="live-session-note" id="video-live-note">Live chat sends microphone audio and up to one camera frame per second to the cloud while connected. API usage may be billed.</div>
+            <button class="secondary-button" id="video-live-toggle" type="button" disabled>Start live video chat</button>
+          </div>
+          <div class="camera-frame" id="camera-frame">
+            <video id="camera-video" autoplay muted playsinline aria-label="Live camera preview"></video>
+            <div class="camera-placeholder" id="camera-placeholder">
+              <div class="camera-placeholder-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="6" width="12" height="12" rx="2"></rect><path d="m15.5 10 5-3v10l-5-3"></path></svg></div>
+              <strong>Your camera, your choice</strong>
+              <span>Start a private preview, then choose a live conversation or send one frame for help.</span>
+              <button class="primary-button camera-start" id="camera-start" type="button">Start camera preview</button>
+            </div>
+            <div class="camera-live-badge" id="camera-live-badge"><span></span> Live preview</div>
+          </div>
+          <div class="video-actions">
+            <div class="camera-note" id="camera-note">Your camera stays off until you turn it on.</div>
+            <button class="secondary-button" id="camera-stop" type="button" hidden>Turn camera off</button>
+            <button class="primary-button" id="analyze-frame" type="button" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5h16v13H4z"></path><circle cx="9" cy="10" r="1.5"></circle><path d="m5 17 5-4 3 2 3-4 4 5"></path></svg>Ask about this frame</button>
+          </div>
+        </section>
+
+        <section class="conversation" id="conversation" role="log" aria-live="polite" aria-label="Conversation"></section>
+        <section class="welcome" id="welcome">
+          <div class="welcome-mark"><img class="welcome-logo" src="vyoiōn-logo.png" alt="VYOION logo"></div>
+          <h2>Hello, I’m vyoiōn.</h2>
+          <p>I can help you understand health information and medical reports, one clear step at a time.</p>
+          <div class="suggestions">
+            <button type="button" class="suggestion-card" data-prompt="I have a medical report. What is the best way to share it and understand the results?"><span class="suggestion-icon report-icon">▤</span><span><strong>Understand a report</strong><small>Make medical language easier to read</small></span><span class="suggestion-arrow">↗</span></button>
+            <button type="button" class="suggestion-card" data-prompt="Can you explain what a lab result means in plain language?"><span class="suggestion-icon lab-icon">◉</span><span><strong>Explain a lab result</strong><small>Learn what a number may mean</small></span><span class="suggestion-arrow">↗</span></button>
+            <button type="button" class="suggestion-card" data-prompt="I have a health question. Can you help me understand it?"><span class="suggestion-icon question-icon">?</span><span><strong>Ask a health question</strong><small>Get a thoughtful, simple explanation</small></span><span class="suggestion-arrow">↗</span></button>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <footer class="composer-area" id="composer-area">
+      <div class="composer-inner">
+        <div class="attachment-list" id="attachment-list" aria-live="polite"></div>
+        <form class="composer" id="composer-form">
+          <input id="file-input" type="file" accept="application/pdf,image/jpeg,image/png,image/webp" multiple hidden>
+          <button class="attach-button" id="attach-button" type="button" aria-label="Attach a report or image" title="Attach a PDF or image"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8.5 12.5 6.7-6.7a3.2 3.2 0 0 1 4.5 4.5l-8.6 8.6a5 5 0 0 1-7.1-7.1l8.2-8.2"></path></svg></button>
+          <textarea id="message-input" rows="1" placeholder="Ask vyoiōn anything..." aria-label="Message vyoiōn"></textarea>
+          <button class="send-button" id="send-button" type="submit" aria-label="Send message" title="Send message"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 14-7-4 14-3.2-5.8L5 12z"></path><path d="m11.8 13.2 3.7-4.1"></path></svg></button>
+          <button class="send-button stop-button" id="stop-button" type="button" aria-label="Stop response" title="Stop response" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6.5" y="6.5" width="11" height="11" rx="1.5"></rect></svg></button>
+        </form>
+          <div class="composer-meta"><span>Education only—not a diagnosis. Ask a clinician or pharmacist before changing medicines; emergencies need urgent care.</span><span class="meta-separator">·</span><span>Messages and chosen reports go to the cloud service. Chats aren’t saved by vyoiōn.</span><button type="button" class="key-shortcut" id="key-shortcut">API key</button></div>
+      </div>
+    </footer>
+  </div>
+
+  <dialog class="settings-dialog" id="settings-dialog">
+    <div class="dialog-close-wrap"><button class="dialog-close" id="dialog-close" type="button" aria-label="Close settings">×</button></div>
+    <div class="dialog-eyebrow"><span class="eyebrow-line"></span> YOUR SETTINGS</div>
+    <h2>Set up vyoiōn</h2>
+    <p class="dialog-intro">Add a cloud key once. vyoiōn checks access before enabling conversations.</p>
+    <form id="key-form">
+      <label class="field-label" for="api-key">Cloud API key</label>
+      <div class="key-input-wrap"><input id="api-key" type="password" autocomplete="off" spellcheck="false" placeholder="Paste a fresh replacement key" required><button type="button" id="key-visibility">Show</button></div>
+      <p class="key-storage-note">The key is saved in <code>redist\api-key.txt</code> and loaded automatically on launch. It travels with the portable folder, so keep the folder private. The local process uses the key for cloud replies and short-lived live-session tokens; usage may be billed by your provider.</p>
+      <div class="dialog-actions"><button class="secondary-button" id="forget-key" type="button">Forget key</button><button class="primary-button" id="save-key-button" type="submit">Save and verify</button></div>
+    </form>
+    <div class="voice-preference">
+      <label class="field-label" for="voice-gender">Narrator voice</label>
+      <select id="voice-gender" class="voice-select" aria-describedby="voice-preference-note">
+        <option value="female">Feminine (default)</option>
+        <option value="male">Masculine</option>
+      </select>
+      <p class="voice-preference-note" id="voice-preference-note">Spoken replies use cloud narration and may add API usage charges. Hindi and Hinglish wording follows this voice choice; new live sessions use the selected voice too. You can also change it in chat.</p>
+    </div>
+    <div class="dialog-divider"></div>
+    <div class="about-copy"><div class="about-heading">About vyoiōn</div><p>vyoiōn is a portable healthcare companion made by <strong>incendo</strong>.</p><p class="dev-list">Ansh Singh · Aarav Mehta · Shiven Sharma · Dhruv Mishra</p><p class="small-disclaimer">It can help explain information, but it can’t diagnose or replace a qualified clinician.</p></div>
+    <div class="dialog-status" id="dialog-status" role="status"></div>
+  </dialog>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+</body>
+</html>
