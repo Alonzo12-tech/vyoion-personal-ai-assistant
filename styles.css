@@ -100,3 +100,4 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .voice-preference-note { margin: 7px 0 0; color: #79858b; font-size: 9px; line-height: 1.5; }
 @media (max-width: 680px) { .welcome-mark { width: 146px; height: 68px; margin-bottom: 13px; border-radius: 16px; } }
 .workspace.mode-voice .conversation { max-height: 34vh; }
+.camera-frame video { object-fit: contain; }

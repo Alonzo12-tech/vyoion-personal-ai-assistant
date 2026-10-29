@@ -23,6 +23,9 @@ const state = {
   liveConnecting: false,
   liveMode: null,
   liveUtilityTurnPending: false,
+  liveUtilityWaitForTurn: false,
+  liveUtilityWaitForCard: false,
+  pendingUtilityFollowUp: null,
   liveAttempt: 0,
   liveVideoTimer: 0,
   livePlaybackTime: 0,
@@ -392,12 +395,17 @@ function renderUtilityCard(message) {
   heading.append(icon, headingText);
   card.appendChild(heading);
 
-  if (data.type === "weatherPrompt" || data.type === "locationPrompt") {
+  if (data.type === "loading") {
+    card.appendChild(utilityCardElement("p", "utility-card-copy utility-card-loading", data.subtitle || "Loading current information…"));
+  } else if (data.type === "weatherPrompt" || data.type === "locationPrompt") {
     card.appendChild(utilityCardElement("p", "utility-card-copy", data.description || "Share a place name and I’ll look it up."));
     if (data.action) {
       const action = utilityCardElement("button", "utility-card-action", data.actionLabel || "Use my location");
       action.type = "button";
-      action.addEventListener("click", function () { resolveCurrentLocation(message, data.action); });
+      action.addEventListener("click", function () {
+        state.pendingUtilityFollowUp = null;
+        resolveCurrentLocation(message, data.action);
+      });
       card.appendChild(action);
     }
   } else if (data.type === "weather") {
@@ -420,7 +428,11 @@ function renderUtilityCard(message) {
       grid.appendChild(stat);
     });
     card.appendChild(grid);
-    card.appendChild(utilityCardElement("div", "utility-card-attribution", "Weather by Open-Meteo · " + (data.updated || "current conditions")));
+    card.appendChild(utilityCardElement("div", "utility-card-attribution", "Open-Meteo forecast model · " + (data.updated || "latest available conditions")));
+    const refresh = utilityCardElement("button", "utility-card-action", "Refresh weather");
+    refresh.type = "button";
+    refresh.addEventListener("click", function () { refreshWeatherMessage(message, data); });
+    card.appendChild(refresh);
   } else if (data.type === "clock") {
     card.dataset.timezone = data.timezone || "local";
     const clock = utilityCardElement("strong", "clock-time", "");
@@ -443,15 +455,19 @@ function renderUtilityCard(message) {
 function updateClockCard(card) {
   const now = new Date();
   const timeZone = card.dataset.timezone || "local";
+  const resolvedZone = timeZone === "local" ? (Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC") : timeZone;
   const options = timeZone === "local" ? {} : { timeZone: timeZone };
   const timeNode = card.querySelector(".clock-time");
   const dateNode = card.querySelector(".clock-date");
   try {
-    timeNode.textContent = new Intl.DateTimeFormat(undefined, Object.assign({ hour: "numeric", minute: "2-digit", second: "2-digit" }, options)).format(now);
-    dateNode.textContent = new Intl.DateTimeFormat(undefined, Object.assign({ weekday: "long", year: "numeric", month: "long", day: "numeric" }, options)).format(now);
+    timeNode.textContent = new Intl.DateTimeFormat("en-US", Object.assign({ hour: "numeric", minute: "2-digit", second: "2-digit" }, options)).format(now);
+    const dateText = new Intl.DateTimeFormat("en-US", Object.assign({ weekday: "long", year: "numeric", month: "long", day: "numeric" }, options)).format(now);
+    let offset = "GMT";
+    try { offset = new Intl.DateTimeFormat("en-US", { timeZone: resolvedZone, timeZoneName: "longOffset" }).formatToParts(now).find(function (part) { return part.type === "timeZoneName"; }).value; } catch (_) {}
+    dateNode.textContent = dateText + " · " + offset;
   } catch (_) {
     timeNode.textContent = new Intl.DateTimeFormat().format(now);
-    dateNode.textContent = "Local device time";
+    dateNode.textContent = "Local device time · GMT";
   }
 }
 
@@ -464,7 +480,10 @@ function updateVisibleClocks() {
 
 function identifyUtilityRequest(text) {
   const normalized = String(text || "").trim();
-  const currentLocation = /\bwhere\s+am\s+i\b|\bmy\s+(?:current\s+)?location\b|\bnear\s+me\b|\bweather\s+(?:where\s+i\s+am|in\s+my\s+area)\b|\bmeri?\s+location\b|\bmera\s+location\b|\bmy\s+aas\s+paas\b|\bmere\s+(?:aas\s+paas|paas)\b|\bmain\s+kahan\s+hoon\b|मेरी\s+लोकेशन|मेरा\s+लोकेशन|मैं\s+कहाँ\s+हूँ/i.test(normalized);
+  const explicitCurrentLocation = /\bwhere\s+am\s+i\b|\bmy\s+(?:current\s+)?location\b|\bmeri?\s+location\b|\bmera\s+location\b|\bmy\s+aas\s+paas\b|\bmere\s+(?:aas\s+paas|paas)\b|\bmain\s+kahan\s+hoon\b|मेरी\s+लोकेशन|मेरा\s+लोकेशन|मैं\s+कहाँ\s+हूँ/i.test(normalized);
+  const currentAreaReference = /\bnear\s+me\b|\baround\s+me\b|\bhere\b|\bwhere\s+i\s+am\b|\bin\s+my\s+area\b|\bmy\s+(?:country|city)\b/i.test(normalized);
+  const asksForLocalInfo = /\b(?:weather|forecast|rain|sunny|mausam|time|clock|date|map|maps|directions|location)\b|मौसम|बारिश|समय|वक़्त|नक्शा|रास्ता/i.test(normalized);
+  const currentLocation = explicitCurrentLocation || (currentAreaReference && asksForLocalInfo);
   if (currentLocation) {
     if (/\b(?:weather|forecast|rain|sunny|mausam)\b|मौसम|बारिश/i.test(normalized)) return { type: "weather", current: true };
     if (/\b(?:time|clock|samay|waqt)\b|समय|वक़्त/i.test(normalized)) return { type: "clock", current: true };
@@ -472,10 +491,40 @@ function identifyUtilityRequest(text) {
     return { type: "location", current: true };
   }
   if (/\b(?:weather|forecast|rainfall|rainy|sunny|snowfall|mausam)\b|मौसम|बारिश/i.test(normalized)) return { type: "weather", place: extractUtilityPlace(normalized) };
-  if (/\b(?:what(?:'s| is)\s+)?(?:the\s+)?(?:current\s+)?time\s*(?:now)?\??$|\bwhat\s+time\s+is\s+it\b|\blocal\s+time\b|\bclock\s+(?:in|at|for)\b|\btime\s+(?:in|at|for)\b|\bdate\s+(?:in|at|for|here)\b|\b(?:samay|waqt)\b|\b(?:kya\s+)?time\s+(?:hai|hua)\b|समय|वक़्त/i.test(normalized)) return { type: "clock", place: extractUtilityPlace(normalized) };
+  if (/\bwhat(?:'s| is)\s+(?:the\s+)?time\b|\bwhat\s+time\s+is\s+it\b|\b(?:current|local)\s+time\b|\btime\s+(?:now|in|at|for)\b|\bclock(?:\s+(?:now|in|at|for))?\b|\b(?:tell|show|give)\s+(?:me|my)\s+(?:the\s+)?(?:current\s+)?time\b|\bwhat(?:'s| is)\s+(?:the\s+)?date\b|\bdate\s+(?:in|at|for|here)\b|\b(?:samay|waqt)\b|\b(?:kya\s+)?time\s+(?:hai|hua)\b|समय|वक़्त/i.test(normalized) || /^\s*(?:time|clock|date)\s*[?!.]*\s*$/i.test(normalized)) return { type: "clock", place: extractUtilityPlace(normalized) };
   if (/\bmap\b|\bmaps\b|\bdirections\b|\bnaksha\b|नक्शा|नक्शे|रास्ता/i.test(normalized)) return { type: "map", place: extractUtilityPlace(normalized) };
   if (/\bwhere\s+is\s+[^?]+|\blocation\s+(?:of|for)\s+[^?]+/i.test(normalized)) return { type: "location", place: extractUtilityPlace(normalized) };
   return null;
+}
+
+function pendingUtilityType() {
+  if (state.pendingUtilityFollowUp && state.pendingUtilityFollowUp.type) return state.pendingUtilityFollowUp.type;
+  const last = state.history[state.history.length - 1];
+  if (!last || last.role !== "assistant") return null;
+  if (last.card && (last.card.type === "weatherPrompt" || last.card.type === "locationPrompt")) return last.card.action || (last.card.type === "weatherPrompt" ? "weather" : null);
+  if (!/\b(?:which|what)\s+(?:city|country|place)|\bwhere\s+should\s+i\s+(?:check|look)|\bwhat\s+city\s+or\s+country\b/i.test(last.text || "")) return null;
+  for (let i = state.history.length - 2; i >= 0; i--) {
+    const prior = state.history[i];
+    if (prior.role !== "user") continue;
+    const intent = identifyUtilityRequest(prior.text || "");
+    return intent && !intent.place && !intent.current ? intent.type : null;
+  }
+  return null;
+}
+
+function resolveUtilityFollowUpIntent(text, consume) {
+  const type = pendingUtilityType();
+  if (!type) return null;
+  const value = String(text || "").trim().replace(/[.!?]+$/, "").trim();
+  if (!value || value.length > 80) return null;
+  if (/^(?:use\s+(?:my\s+)?(?:current\s+)?location|(?:my\s+)?current\s+location|my\s+location|near\s+me|here)$/i.test(value)) {
+    if (consume !== false) state.pendingUtilityFollowUp = null;
+    return { type: type, current: true };
+  }
+  if (identifyUtilityRequest(value) || /\b(?:i|me|my|you|we|they|he|she|it|can|could|would|should|what|why|how|when|where|tell|show|give|please|thanks|thank|no|not|yes|yeah|okay|ok|sure|hello|hi|hey|stop|skip|cancel)\b/i.test(value)) return null;
+  if (!/^[\p{L}\p{M}\p{N}\s,.'’()\-]+$/u.test(value)) return null;
+  if (consume !== false) state.pendingUtilityFollowUp = null;
+  return { type: type, place: value };
 }
 
 function extractUtilityPlace(text) {
@@ -533,16 +582,20 @@ async function fetchJson(url, signal) {
 async function searchUtilityPlace(query, signal) {
   const url = new URL("https://geocoding-api.open-meteo.com/v1/search");
   url.searchParams.set("name", query);
-  url.searchParams.set("count", "1");
+  url.searchParams.set("count", "5");
   url.searchParams.set("language", "en");
   const payload = await fetchJson(url.toString(), signal);
-  const result = payload.results && payload.results[0];
+  const results = payload.results || [];
+  const exactName = String(query || "").split(",")[0].trim().toLocaleLowerCase();
+  const result = results.find(function (item) { return String(item.name || "").toLocaleLowerCase() === exactName; }) || results[0];
   if (!result) throw new Error("I couldn’t find that place. Try a city and country, such as “Pune, India”.");
+  const placeNames = [result.name, result.admin1 && result.admin1 !== result.name ? result.admin1 : "", result.country].filter(Boolean);
+  const uniquePlaceNames = placeNames.filter(function (name, index) { return placeNames.findIndex(function (candidate) { return candidate.toLocaleLowerCase() === name.toLocaleLowerCase(); }) === index; });
   return {
     latitude: Number(result.latitude),
     longitude: Number(result.longitude),
     timezone: result.timezone || "local",
-    locationName: [result.name, result.admin1 && result.admin1 !== result.name ? result.admin1 : "", result.country].filter(Boolean).join(", ")
+    locationName: uniquePlaceNames.join(", ")
   };
 }
 
@@ -557,6 +610,18 @@ function requestCurrentPosition() {
   });
 }
 
+async function resolveTimezone(place, signal) {
+  if (place.timezone && place.timezone !== "local") return place.timezone;
+  const url = new URL("https://api.open-meteo.com/v1/forecast");
+  url.searchParams.set("latitude", String(place.latitude));
+  url.searchParams.set("longitude", String(place.longitude));
+  url.searchParams.set("current", "temperature_2m");
+  url.searchParams.set("timezone", "auto");
+  const payload = await fetchJson(url.toString(), signal);
+  if (!payload.timezone) throw new Error("I couldn’t determine the local time zone for that location.");
+  return payload.timezone;
+}
+
 async function fetchWeather(place, signal) {
   const url = new URL("https://api.open-meteo.com/v1/forecast");
   url.searchParams.set("latitude", String(place.latitude));
@@ -565,22 +630,27 @@ async function fetchWeather(place, signal) {
   url.searchParams.set("daily", "temperature_2m_max,temperature_2m_min,precipitation_probability_max");
   url.searchParams.set("forecast_days", "1");
   url.searchParams.set("timezone", place.timezone && place.timezone !== "local" ? place.timezone : "auto");
+  url.searchParams.set("timeformat", "unixtime");
   const payload = await fetchJson(url.toString(), signal);
   const current = payload.current || {};
   const daily = payload.daily || {};
   const condition = weatherDescription(current.weather_code);
-  const time = current.time ? new Date(current.time) : new Date();
-  const updated = current.time && current.time.includes("T") ? current.time.split("T")[1].slice(0, 5) : new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit", timeZone: payload.timezone || undefined }).format(time);
+  const timezone = payload.timezone || place.timezone || "UTC";
+  const dataTimestamp = Number(current.time);
+  const updated = Number.isFinite(dataTimestamp)
+    ? new Intl.DateTimeFormat("en-US", { timeZone: timezone, hour: "numeric", minute: "2-digit", timeZoneName: "longOffset" }).format(new Date(dataTimestamp * 1000))
+    : "time unavailable";
   return {
     type: "weather", title: "Weather", subtitle: place.locationName,
     locationName: place.locationName,
+    latitude: place.latitude, longitude: place.longitude, timezone: timezone,
     temperature: Math.round(Number(current.temperature_2m)),
     apparent: Math.round(Number(current.apparent_temperature)),
     humidity: Math.round(Number(current.relative_humidity_2m)),
     wind: Math.round(Number(current.wind_speed_10m)),
     low: Math.round(Number(daily.temperature_2m_min && daily.temperature_2m_min[0])),
     high: Math.round(Number(daily.temperature_2m_max && daily.temperature_2m_max[0])),
-    condition: condition[0], weatherIcon: condition[1], updated: "Updated " + updated,
+    condition: condition[0], weatherIcon: condition[1], updated: "Model data at " + updated,
     precipitation: daily.precipitation_probability_max && daily.precipitation_probability_max[0]
   };
 }
@@ -591,6 +661,18 @@ function updateUtilityMessage(message, text, card) {
   rerenderHistory();
 }
 
+async function refreshWeatherMessage(message, previousData) {
+  const place = {
+    latitude: previousData.latitude,
+    longitude: previousData.longitude,
+    timezone: previousData.timezone,
+    locationName: previousData.locationName
+  };
+  updateUtilityMessage(message, "", { type: "loading", title: "Refreshing weather", icon: "🌦", subtitle: "Fetching the latest available model data" });
+  try { updateUtilityMessage(message, "", await fetchWeather(place)); }
+  catch (error) { updateUtilityMessage(message, error.message || "I couldn’t refresh the weather right now.", null); }
+}
+
 async function resolveCurrentLocation(message, action, signal) {
   message.text = "";
   message.card = { type: "loading", title: "Finding your location", icon: "⌖", subtitle: "Waiting for your permission" };
@@ -599,7 +681,10 @@ async function resolveCurrentLocation(message, action, signal) {
     const place = await requestCurrentPosition();
     if (signal && signal.aborted) throw new Error("Response stopped.");
     if (action === "weather") updateUtilityMessage(message, "", await fetchWeather(place, signal));
-    else updateUtilityMessage(message, "", { type: "location", title: action === "map" ? "Map" : "Your location", icon: action === "map" ? "⌖" : "◎", ...place });
+    else if (action === "clock") {
+      const timezone = await resolveTimezone(place, signal);
+      updateUtilityMessage(message, "", { type: "clock", title: "Local time", icon: "◷", ...place, timezone });
+    } else updateUtilityMessage(message, "", { type: action === "map" ? "map" : "location", title: action === "map" ? "Map" : "Your location", icon: action === "map" ? "⌖" : "◎", ...place });
   } catch (error) {
     updateUtilityMessage(message, error.message, null);
   }
@@ -608,35 +693,50 @@ async function resolveCurrentLocation(message, action, signal) {
 async function runUtilityRequest(intent, message, signal) {
   try {
     if (signal && signal.aborted) throw new Error("Response stopped.");
-    if (intent.type === "weather" && !intent.place && !intent.current) {
-      updateUtilityMessage(message, "", { type: "weatherPrompt", title: "Weather near you", icon: "🌦", description: "Choose your current location, or ask for weather in a city. Your location is only used after you choose the button.", action: "weather", actionLabel: "Use my location" });
-      return;
-    }
-    if ((intent.type === "map" || intent.type === "location") && !intent.place && !intent.current) {
-      updateUtilityMessage(message, "", { type: "locationPrompt", title: intent.type === "map" ? "Find a place" : "Look up a place", icon: "⌖", description: "Add a city or place name, or choose your current location.", action: "location", actionLabel: "Use my location" });
+    if (intent.place) state.pendingUtilityFollowUp = null;
+    if (intent.type === "clock" && (intent.current || !intent.place)) {
+      await resolveCurrentLocation(message, "clock", signal);
       return;
     }
     if (intent.current) {
-      await resolveCurrentLocation(message, intent.type, signal);
+      state.pendingUtilityFollowUp = { type: intent.type };
+      const weather = intent.type === "weather";
+      const title = weather ? "Where should I check the weather?" : intent.type === "clock" ? "Where should I check the time?" : "Find your current location";
+      const description = weather
+        ? "Tell me a city or country, or choose your current location. I won’t use device location unless you press the button and allow it."
+        : intent.type === "clock"
+          ? "Tell me a city or country, or choose your current location. I’ll show its local time with the GMT offset."
+          : "Choose the button to share your current location with this app. Your browser will ask before sharing it.";
+      updateUtilityMessage(message, "", { type: weather ? "weatherPrompt" : "locationPrompt", title: title, icon: weather ? "🌦" : intent.type === "clock" ? "◷" : "⌖", description: description, action: intent.type, actionLabel: "Use my location" });
       return;
     }
-    if (intent.type === "clock" && !intent.place) {
-      updateUtilityMessage(message, "", { type: "clock", title: "Your local time", icon: "◷", timezone: "local" });
+    if (intent.type === "weather" && !intent.place && !intent.current) {
+      state.pendingUtilityFollowUp = { type: intent.type };
+      updateUtilityMessage(message, "", { type: "weatherPrompt", title: "Where should I check the weather?", icon: "🌦", description: "Tell me a city or country, or choose your current location. I won’t use device location unless you press the button and allow it.", action: "weather", actionLabel: "Use my location" });
+      return;
+    }
+    if ((intent.type === "map" || intent.type === "location") && !intent.place && !intent.current) {
+      state.pendingUtilityFollowUp = { type: intent.type };
+      const title = intent.type === "map" ? "Find a place" : "Look up a place";
+      updateUtilityMessage(message, "", { type: "locationPrompt", title: title, icon: "⌖", description: "Add a city or place name, or choose your current location.", action: intent.type, actionLabel: "Use my location" });
       return;
     }
     const place = await searchUtilityPlace(intent.place, signal);
     if (signal && signal.aborted) throw new Error("Response stopped.");
     if (intent.type === "weather") updateUtilityMessage(message, "", await fetchWeather(place, signal));
-    else if (intent.type === "clock") updateUtilityMessage(message, "", { type: "clock", title: "Local time", icon: "◷", ...place });
+    else if (intent.type === "clock") {
+      const timezone = await resolveTimezone(place, signal);
+      updateUtilityMessage(message, "", { type: "clock", title: "Local time", icon: "◷", ...place, timezone });
+    }
     else updateUtilityMessage(message, "", { type: intent.type === "map" ? "map" : "location", title: intent.type === "map" ? "Map" : "Location", icon: "⌖", ...place });
   } catch (error) {
     updateUtilityMessage(message, error.message || "I couldn’t load that information right now.", null);
   }
 }
 
-function handleUtilityRequest(text, attachments, userMessage, onComplete) {
+function handleUtilityRequest(text, attachments, userMessage, onComplete, intentOverride) {
   if (attachments.length) return false;
-  const intent = identifyUtilityRequest(text);
+  const intent = intentOverride || identifyUtilityRequest(text);
   if (!intent) return false;
   const assistantMessage = { role: "assistant", text: "", card: { type: "loading", title: "Getting details", icon: "✦", subtitle: "Checking current information" } };
   state.history.push(assistantMessage);
@@ -720,7 +820,17 @@ function readFileAsBase64(file) {
 }
 
 function selectFiles(files) {
-  Array.from(files || []).forEach(async function (file) {
+  const selectedFiles = Array.from(files || []);
+  const hasUsableFile = selectedFiles.some(function (file) {
+    const extension = file.name.toLowerCase().split(".").pop();
+    const mimeType = file.type || ({ pdf: "application/pdf", jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp" })[extension] || "";
+    return mimeType === "application/pdf" || ["image/jpeg", "image/png", "image/webp"].includes(mimeType);
+  });
+  if (hasUsableFile && (state.liveReady || state.liveConnecting || state.liveMode)) {
+    stopLiveSession();
+    showToast("Live chat ended so I can review the file without overlapping audio.");
+  }
+  selectedFiles.forEach(async function (file) {
     const extension = file.name.toLowerCase().split(".").pop();
     const mimeType = file.type || ({ pdf: "application/pdf", jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp" })[extension] || "";
     const allowed = mimeType === "application/pdf" || ["image/jpeg", "image/png", "image/webp"].includes(mimeType);
@@ -922,6 +1032,10 @@ async function sendMessage(explicitText, frameAttachment) {
   const text = typeof explicitText === "string" ? explicitText.trim() : el.input.value.trim();
   const attachments = frameAttachment ? [frameAttachment].concat(state.attachments) : state.attachments.slice();
   if (!text && !attachments.length) return;
+  if (attachments.length) {
+    if (state.liveReady || state.liveConnecting || state.liveMode) stopLiveSession();
+    stopNarration();
+  }
   const messageText = text || "Please look at this image and explain anything visible that may help me understand it.";
   const voiceRequest = attachments.length ? "" : requestedVoiceGender(messageText);
   if (voiceRequest) {
@@ -931,8 +1045,12 @@ async function sendMessage(explicitText, frameAttachment) {
     showInstantExchange(messageText, reply, true);
     return;
   }
-  const utilityIntent = !attachments.length && identifyUtilityRequest(messageText);
+  const directUtilityIntent = !attachments.length && identifyUtilityRequest(messageText);
+  const followUpUtilityIntent = !attachments.length && !directUtilityIntent ? resolveUtilityFollowUpIntent(messageText, false) : null;
+  const utilityIntent = directUtilityIntent || followUpUtilityIntent;
   if (state.liveConnecting) { showToast("Wait for the live session to connect, then try again."); return; }
+  if (utilityIntent && state.liveReady) stopLiveSession();
+  if (directUtilityIntent || followUpUtilityIntent || (!followUpUtilityIntent && !attachments.length)) state.pendingUtilityFollowUp = null;
   const greeting = !attachments.length && !state.liveReady ? instantGreeting(messageText) : "";
   if (greeting) {
     if (typeof explicitText !== "string" || text === el.input.value.trim()) { el.input.value = ""; resizeInput(); }
@@ -965,7 +1083,7 @@ async function sendMessage(explicitText, frameAttachment) {
   renderAttachments();
   renderMessage(userMessage, { forceScroll: true });
   updateWelcome();
-  if (utilityIntent && handleUtilityRequest(text || messageText, attachments, userMessage)) return;
+  if (utilityIntent && handleUtilityRequest(text || messageText, attachments, userMessage, null, utilityIntent)) return;
   const apiContents = buildContents(attachments);
   const pending = renderMessage({ role: "assistant", text: "" }, { loading: true });
   state.stopRequested = false;
@@ -1076,21 +1194,9 @@ function stopCamera() {
   if (document.fullscreenElement === el.videoPanel && document.exitFullscreen) document.exitFullscreen().catch(function () {});
 }
 
-async function toggleCameraFullscreen() {
-  try {
-    if (el.videoPanel.classList.contains("fullscreen-fallback")) {
-      exitFallbackFullscreen();
-    } else if (document.fullscreenElement === el.videoPanel) {
-      await document.exitFullscreen();
-    } else if (el.videoPanel.requestFullscreen) {
-      await el.videoPanel.requestFullscreen();
-      syncFullscreenButton();
-    } else {
-      enterFallbackFullscreen();
-    }
-  } catch (_) {
-    if (!el.videoPanel.classList.contains("fullscreen-fallback")) enterFallbackFullscreen();
-  }
+function toggleCameraFullscreen() {
+  if (el.videoPanel.classList.contains("fullscreen-fallback")) exitFallbackFullscreen();
+  else enterFallbackFullscreen();
 }
 
 function syncFullscreenButton() {
@@ -1194,19 +1300,34 @@ async function startLiveAudioCapture(stream) {
 function appendLiveUserText(text) {
   const cleanText = String(text || "").trim();
   if (!cleanText) return;
-  const utilityIntent = identifyUtilityRequest(cleanText);
+  const directUtilityIntent = identifyUtilityRequest(cleanText);
+  const followUpUtilityIntent = !directUtilityIntent ? resolveUtilityFollowUpIntent(cleanText) : null;
+  const utilityIntent = directUtilityIntent || followUpUtilityIntent;
+  if (directUtilityIntent || (!followUpUtilityIntent && !utilityIntent)) state.pendingUtilityFollowUp = null;
   if (utilityIntent) {
     finishLiveAssistantTurn();
     stopLivePlayback();
     state.liveUtilityTurnPending = true;
+    state.liveUtilityWaitForTurn = true;
+    state.liveUtilityWaitForCard = true;
   }
   const userMessage = { role: "user", text: cleanText, attachments: [] };
   state.history.push(userMessage);
   renderMessage(userMessage, { forceScroll: true });
   updateWelcome();
   if (utilityIntent) {
-    handleUtilityRequest(cleanText, [], userMessage, function () { state.liveUtilityTurnPending = false; });
+    handleUtilityRequest(cleanText, [], userMessage, function () {
+      state.liveUtilityWaitForCard = false;
+      releaseLiveUtilityGate();
+    }, utilityIntent);
+  } else if (state.liveUtilityTurnPending) {
+    state.liveUtilityWaitForCard = false;
+    releaseLiveUtilityGate();
   }
+}
+
+function releaseLiveUtilityGate() {
+  if (!state.liveUtilityWaitForTurn && !state.liveUtilityWaitForCard) state.liveUtilityTurnPending = false;
 }
 
 function appendLiveAssistantText(text) {
@@ -1331,9 +1452,18 @@ function handleLiveServerMessage(message) {
   if (message && message.error) throw new Error("The cloud service could not start this live session. Check the key and try again.");
   const content = message && message.serverContent;
   if (!content) return false;
-  if (content.interimInputTranscription && state.mode === "voice") {
+  if (content.interimInputTranscription) {
     const interim = String(content.interimInputTranscription.text || "").trim();
-    if (interim) el.voiceHint.textContent = interim;
+    if (interim) {
+      if (state.mode === "voice") el.voiceHint.textContent = interim;
+      if ((identifyUtilityRequest(interim) || resolveUtilityFollowUpIntent(interim, false)) && !state.liveUtilityTurnPending) {
+        state.liveUtilityTurnPending = true;
+        state.liveUtilityWaitForTurn = true;
+        state.liveUtilityWaitForCard = true;
+        finishLiveAssistantTurn();
+        stopLivePlayback();
+      }
+    }
   }
   if (content.inputTranscription && content.inputTranscription.text) appendLiveUserText(content.inputTranscription.text);
   if (!state.liveUtilityTurnPending && content.outputTranscription && content.outputTranscription.text) appendLiveAssistantText(content.outputTranscription.text);
@@ -1346,6 +1476,8 @@ function handleLiveServerMessage(message) {
   if (content.turnComplete) {
     if (state.liveUtilityTurnPending) {
       stopLivePlayback();
+      state.liveUtilityWaitForTurn = false;
+      releaseLiveUtilityGate();
     } else {
       state.liveTurnComplete = true;
       if (!state.liveAudioSources.length) {
@@ -1389,6 +1521,8 @@ function connectLiveSocket(token, attempt) {
       const setupMessage = {
         setup: {
           model: "models/gemini-3.8-live",
+          inputAudioTranscription: {},
+          outputAudioTranscription: {},
           generationConfig: {
             responseModalities: ["AUDIO"],
             speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voiceName } } }
@@ -1452,7 +1586,10 @@ function stopLiveSession() {
   state.liveReady = false;
   state.liveConnecting = false;
   state.liveMode = null;
+  if (state.liveUtilityTurnPending && state.activeChatController) state.activeChatController.abort();
   state.liveUtilityTurnPending = false;
+  state.liveUtilityWaitForTurn = false;
+  state.liveUtilityWaitForCard = false;
   if (socket && socket.readyState === WebSocket.OPEN) {
     try { socket.send(JSON.stringify({ realtimeInput: { audioStreamEnd: true } })); } catch (_) {}
     try { socket.close(1000, "Session ended by user"); } catch (_) {}
@@ -1468,6 +1605,7 @@ function stopLiveSession() {
   state.analyser = null;
   state.analyserData = null;
   state.listening = false;
+  stopNarration();
   if (el.micToggle) {
     el.micToggle.classList.remove("listening");
     el.micToggle.setAttribute("aria-label", "Start voice chat");
