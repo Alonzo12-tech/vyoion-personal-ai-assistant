@@ -1,30 +1,67 @@
 $ErrorActionPreference = "Stop"
-$port = 43187
-$url = "http://127.0.0.1:$port/"
-$alreadyListening = $false
-$probe = [System.Net.Sockets.TcpClient]::new()
-try {
-    $probe.Connect([System.Net.IPAddress]::Loopback, $port)
-    $alreadyListening = $true
-} catch {
-    $alreadyListening = $false
-} finally {
-    $probe.Close()
+$basePort = 43187
+$lastPort = 43217
+$expectedVersion = "2026.10.31.2"
+$brand = "vyoi" + [char]0x014D + "n"
+
+function Test-LocalPort {
+    param([int]$Port)
+    $client = [System.Net.Sockets.TcpClient]::new()
+    try {
+        $client.Connect([System.Net.IPAddress]::Loopback, $Port)
+        return $true
+    } catch {
+        return $false
+    } finally {
+        $client.Dispose()
+    }
 }
 
-if ($alreadyListening) {
+function Get-HealthyAppUrl {
+    param([int]$Port, [string]$Version)
+    $url = "http://127.0.0.1:$Port/"
     try {
-        $page = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 3
-        if ($page.StatusCode -eq 200 -and $page.Content.Contains("your health companion")) {
-            Start-Process $url
-            exit 0
+        $response = Invoke-WebRequest -Uri ($url + "api/status") -UseBasicParsing -TimeoutSec 2
+        $status = $response.Content | ConvertFrom-Json -ErrorAction Stop
+        if ([string]$status.version -eq $Version -and [int]$status.port -eq $Port) {
+            return $url
         }
     } catch {
-        # The listener exists but did not return the vyoiōn page.
+        # A listener without the current health signature is an older or unrelated server.
     }
-    Write-Host "Port $port is already in use by another local app. Close that app and try again." -ForegroundColor Red
-    Read-Host "Press Enter to close"
-    exit 1
+    return $null
 }
 
-& (Join-Path $PSScriptRoot "serve.ps1")
+$selectedPort = -1
+$existingUrl = $null
+$foundOlderServer = $false
+for ($candidatePort = $basePort; $candidatePort -le $lastPort; $candidatePort++) {
+    if (Test-LocalPort -Port $candidatePort) {
+        $healthyUrl = Get-HealthyAppUrl -Port $candidatePort -Version $expectedVersion
+        if ($healthyUrl) {
+            $existingUrl = $healthyUrl
+            break
+        }
+        if ($candidatePort -eq $basePort) { $foundOlderServer = $true }
+        continue
+    }
+    $selectedPort = $candidatePort
+    break
+}
+
+if ($existingUrl) {
+    Write-Host "$brand is already running. Opening the current app at $existingUrl" -ForegroundColor Green
+    Start-Process -FilePath $existingUrl
+    return
+}
+
+if ($selectedPort -lt 0) {
+    Write-Host "No free local app port was found between $basePort and $lastPort. Close an unused local app and start $brand again." -ForegroundColor Red
+    return
+}
+
+if ($foundOlderServer) {
+    Write-Host "A previous $brand server is still running. Starting this updated copy at port $selectedPort." -ForegroundColor Yellow
+}
+
+& (Join-Path $PSScriptRoot "serve.ps1") -Port $selectedPort

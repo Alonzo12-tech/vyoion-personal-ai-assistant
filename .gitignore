@@ -1,1 +1,26 @@
-redist/api-key.txt
+# Provider credentials and local secrets
+/redist/api-key.txt
+/.env
+/.env.*
+!/.env.example
+/redist/.env
+/redist/.env.*
+/cloudflare/worker/.dev.vars
+/cloudflare/worker/.env
+/cloudflare/worker/.env.*
+/cloudflare/worker/.wrangler/
+
+# Local logs and temporary files
+*.log
+*.tmp
+*.bak
+*.swp
+Thumbs.db
+Desktop.ini
+
+# Common generated runtime artifacts
+__pycache__/
+*.py[cod]
+node_modules/
+dist/
+build/

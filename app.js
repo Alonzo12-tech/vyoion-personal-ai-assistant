@@ -5,14 +5,21 @@ const state = {
   thinkingLevel: "off",
   voiceGender: "female",
   keyReady: false,
+  sharedApi: false,
   history: [],
+  recentReportAttachments: [],
   attachments: [],
   followConversation: true,
   busy: false,
   activeChatController: null,
   stopRequested: false,
   cameraStream: null,
+  cameraDeviceId: "",
   voiceStream: null,
+  microphoneDeviceId: "",
+  micTestStream: null,
+  micTestContext: null,
+  micTestFrame: 0,
   audioContext: null,
   analyser: null,
   analyserData: null,
@@ -75,9 +82,22 @@ const el = {
   connectionLabel: document.getElementById("connection-label"),
   statusDot: document.querySelector(".status-dot"),
   dialog: document.getElementById("settings-dialog"),
+  healthDisclaimer: document.getElementById("health-disclaimer-dialog"),
+  healthDisclaimerForm: document.getElementById("health-disclaimer-form"),
+  healthDisclaimerInput: document.getElementById("health-disclaimer-confirm"),
+  healthDisclaimerContinue: document.getElementById("health-disclaimer-continue"),
+  healthDisclaimerStatus: document.getElementById("health-disclaimer-status"),
   keyInput: document.getElementById("api-key"),
   keyForm: document.getElementById("key-form"),
+  keyShortcut: document.getElementById("key-shortcut"),
+  sharedApiNote: document.getElementById("shared-api-note"),
   voiceGender: document.getElementById("voice-gender"),
+  microphoneSelect: document.getElementById("microphone-select"),
+  cameraSelect: document.getElementById("camera-select"),
+  micTestButton: document.getElementById("mic-test"),
+  micTestStatus: document.getElementById("mic-test-status"),
+  micMeter: document.querySelector(".mic-meter"),
+  micMeterFill: document.getElementById("mic-meter-fill"),
   keyVisibility: document.getElementById("key-visibility"),
   dialogStatus: document.getElementById("dialog-status"),
   voiceState: document.getElementById("voice-state"),
@@ -98,6 +118,43 @@ const el = {
   cameraNote: document.getElementById("camera-note"),
   toast: document.getElementById("toast")
 };
+
+function normalizeDisclaimerConfirmation(value) {
+  return String(value || "").trim().toLowerCase().replace(/[’‘]/g, "'").replace(/\s+/g, " ");
+}
+
+function hasAcceptedHealthDisclaimer() {
+  try {
+    if (localStorage.getItem("vyoion.healthDisclaimerAccepted") === "yes") return true;
+  } catch (_) {}
+  return document.cookie.split(";").some(function (entry) {
+    return entry.trim() === "vyoion_health_disclaimer=yes";
+  });
+}
+
+function initializeHealthDisclaimer() {
+  if (hasAcceptedHealthDisclaimer()) return;
+
+  function updateConfirmationState() {
+    const confirmed = normalizeDisclaimerConfirmation(el.healthDisclaimerInput.value) === "i've understood";
+    el.healthDisclaimerContinue.disabled = !confirmed;
+    el.healthDisclaimerStatus.textContent = confirmed
+      ? "Select Continue to start using vyoiōn."
+      : "This confirmation appears once in this browser.";
+  }
+
+  el.healthDisclaimerInput.addEventListener("input", updateConfirmationState);
+  el.healthDisclaimerForm.addEventListener("submit", function (event) {
+    event.preventDefault();
+    if (normalizeDisclaimerConfirmation(el.healthDisclaimerInput.value) !== "i've understood") return;
+    try { localStorage.setItem("vyoion.healthDisclaimerAccepted", "yes"); } catch (_) {}
+    try { document.cookie = "vyoion_health_disclaimer=yes; Max-Age=315360000; Path=/; SameSite=Strict"; } catch (_) {}
+    el.healthDisclaimer.close();
+  });
+  el.healthDisclaimer.addEventListener("cancel", function (event) { event.preventDefault(); });
+  el.healthDisclaimer.showModal();
+  window.setTimeout(function () { el.healthDisclaimerInput.focus(); }, 40);
+}
 
 function setStatus(label, busy) {
   el.connectionLabel.textContent = label;
@@ -120,7 +177,9 @@ function openSettings() {
   el.dialogStatus.classList.remove("error");
   el.dialog.classList.remove("closing");
   if (!el.dialog.open) el.dialog.showModal();
-  window.setTimeout(function () { el.keyInput.focus(); }, 60);
+  refreshMicrophoneDevices();
+  refreshCameraDevices();
+  if (!state.sharedApi) window.setTimeout(function () { el.keyInput.focus(); }, 60);
 }
 
 function setVoiceGender(gender, announce) {
@@ -128,6 +187,161 @@ function setVoiceGender(gender, announce) {
   el.voiceGender.value = state.voiceGender;
   try { localStorage.setItem("vyoion.voiceGender", state.voiceGender); } catch (_) {}
   if (announce) showToast("Narrator voice set to " + (state.voiceGender === "male" ? "masculine" : "feminine") + ".");
+}
+
+function microphoneConstraints() {
+  const audio = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+  if (state.microphoneDeviceId) audio.deviceId = { exact: state.microphoneDeviceId };
+  const supported = navigator.mediaDevices && navigator.mediaDevices.getSupportedConstraints ? navigator.mediaDevices.getSupportedConstraints() : {};
+  if (supported && supported.voiceIsolation) audio.voiceIsolation = true;
+  return { audio: audio, video: false };
+}
+
+async function refreshMicrophoneDevices() {
+  if (!el.microphoneSelect || !navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const microphones = devices.filter(function (device) { return device.kind === "audioinput"; });
+    el.microphoneSelect.replaceChildren();
+    const defaultOption = document.createElement("option");
+    defaultOption.value = "";
+    defaultOption.textContent = "System default microphone";
+    el.microphoneSelect.appendChild(defaultOption);
+    if (state.microphoneDeviceId && !microphones.some(function (device) { return device.deviceId === state.microphoneDeviceId; })) {
+      const unavailableOption = document.createElement("option");
+      unavailableOption.value = state.microphoneDeviceId;
+      unavailableOption.textContent = "Saved microphone (not available)";
+      el.microphoneSelect.appendChild(unavailableOption);
+    }
+    microphones.forEach(function (device, index) {
+      const option = document.createElement("option");
+      option.value = device.deviceId;
+      option.textContent = device.label || ("Microphone " + (index + 1));
+      el.microphoneSelect.appendChild(option);
+    });
+    el.microphoneSelect.value = state.microphoneDeviceId;
+  } catch (_) {
+    el.microphoneSelect.replaceChildren();
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "System default microphone";
+    el.microphoneSelect.appendChild(option);
+  }
+}
+
+async function refreshCameraDevices() {
+  if (!el.cameraSelect || !navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const cameras = devices.filter(function (device) { return device.kind === "videoinput" && device.deviceId; });
+    el.cameraSelect.replaceChildren();
+    const defaultOption = document.createElement("option");
+    defaultOption.value = "";
+    defaultOption.textContent = "System default camera";
+    el.cameraSelect.appendChild(defaultOption);
+    if (state.cameraDeviceId && !cameras.some(function (device) { return device.deviceId === state.cameraDeviceId; })) {
+      const unavailableOption = document.createElement("option");
+      unavailableOption.value = state.cameraDeviceId;
+      unavailableOption.textContent = "Saved camera (not available)";
+      el.cameraSelect.appendChild(unavailableOption);
+    }
+    cameras.forEach(function (device, index) {
+      const option = document.createElement("option");
+      option.value = device.deviceId;
+      option.textContent = device.label || ("Camera " + (index + 1));
+      el.cameraSelect.appendChild(option);
+    });
+    el.cameraSelect.value = state.cameraDeviceId;
+  } catch (_) {
+    el.cameraSelect.replaceChildren();
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "System default camera";
+    el.cameraSelect.appendChild(option);
+  }
+}
+
+function setMicrophoneTestStatus(message, isError) {
+  el.micTestStatus.textContent = message;
+  el.micTestStatus.classList.toggle("error", Boolean(isError));
+}
+
+function stopMicrophoneTest(updateStatus) {
+  if (state.micTestFrame) cancelAnimationFrame(state.micTestFrame);
+  state.micTestFrame = 0;
+  if (state.micTestStream) {
+    state.micTestStream.getTracks().forEach(function (track) { track.stop(); });
+    state.micTestStream = null;
+  }
+  if (state.micTestContext) {
+    state.micTestContext.close().catch(function () {});
+    state.micTestContext = null;
+  }
+  el.micTestButton.textContent = "Test microphone";
+  el.micMeterFill.style.width = "0%";
+  el.micMeter.setAttribute("aria-valuenow", "0");
+  if (updateStatus) setMicrophoneTestStatus("Microphone test stopped. Test audio stays on this device.", false);
+}
+
+async function toggleMicrophoneTest() {
+  if (state.micTestStream) { stopMicrophoneTest(true); return; }
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    setMicrophoneTestStatus("Microphone testing is not supported in this browser.", true);
+    return;
+  }
+  el.micTestButton.disabled = true;
+  setMicrophoneTestStatus("Waiting for microphone permission…", false);
+  let stream = null;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia(microphoneConstraints());
+    state.micTestStream = stream;
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) throw new Error("Web Audio is unavailable.");
+    const context = new AudioContextClass({ latencyHint: "interactive" });
+    state.micTestContext = context;
+    await context.resume();
+    const source = context.createMediaStreamSource(stream);
+    const analyser = context.createAnalyser();
+    analyser.fftSize = 512;
+    analyser.smoothingTimeConstant = 0.72;
+    source.connect(analyser);
+    await refreshMicrophoneDevices();
+    el.micTestButton.textContent = "Stop test";
+    setMicrophoneTestStatus("Speak to see the level. Test audio stays on this device.", false);
+    const samples = new Uint8Array(analyser.fftSize);
+    function animateMeter() {
+      if (state.micTestContext !== context) return;
+      analyser.getByteTimeDomainData(samples);
+      let energy = 0;
+      for (let i = 0; i < samples.length; i++) {
+        const sample = (samples[i] - 128) / 128;
+        energy += sample * sample;
+      }
+      const level = Math.min(100, Math.round(Math.sqrt(energy / samples.length) * 900));
+      el.micMeterFill.style.width = level + "%";
+      el.micMeter.setAttribute("aria-valuenow", String(level));
+      state.micTestFrame = requestAnimationFrame(animateMeter);
+    }
+    animateMeter();
+  } catch (error) {
+    if (state.micTestStream) stopMicrophoneTest(false);
+    else if (stream) stream.getTracks().forEach(function (track) { track.stop(); });
+    const message = error && error.name === "NotAllowedError"
+      ? "Microphone access was blocked. Allow it in your browser to test this mic."
+      : error && (error.name === "OverconstrainedError" || error.name === "NotFoundError")
+        ? "That microphone is unavailable. Choose another microphone in Settings."
+        : "Could not start the microphone test. Check the device and browser permissions.";
+    setMicrophoneTestStatus(message, true);
+  } finally {
+    el.micTestButton.disabled = false;
+  }
+}
+
+function microphoneStartError(error) {
+  if (error && error.name === "NotAllowedError") return "Microphone access was blocked. Allow it in your browser, then start the live session again.";
+  if (error && (error.name === "OverconstrainedError" || error.name === "NotFoundError")) return "The selected microphone is unavailable. Choose another microphone in Settings.";
+  if (error && error.name === "NotReadableError") return "The microphone is busy or unavailable. Close other apps using it, then try again.";
+  return error && error.message ? error.message : "Could not start the live conversation.";
 }
 
 function requestedVoiceGender(text) {
@@ -142,6 +356,7 @@ function requestedVoiceGender(text) {
 
 function closeSettings() {
   if (!el.dialog.open || el.dialog.classList.contains("closing")) return;
+  stopMicrophoneTest(false);
   el.dialog.classList.add("closing");
   window.setTimeout(function () {
     if (el.dialog.open) el.dialog.close();
@@ -185,9 +400,14 @@ async function refreshKeyStatus() {
     if (!response.ok) throw new Error("Local status unavailable");
     const result = await response.json();
     state.keyReady = Boolean(result.configured);
+    state.sharedApi = Boolean(result.shared);
   } catch (_) {
     state.keyReady = false;
+    state.sharedApi = false;
   }
+  el.keyForm.hidden = state.sharedApi;
+  el.sharedApiNote.hidden = !state.sharedApi;
+  el.keyShortcut.textContent = state.sharedApi ? "Cloud service" : "API key";
   updateWelcome();
 }
 
@@ -308,7 +528,7 @@ function renderMessage(message, options) {
 }
 
 function activeConversationScroller() {
-  return state.mode === "voice" ? el.conversation : el.workspace;
+  return state.mode === "text" ? el.workspace : el.conversation;
 }
 
 function isNearConversationBottom(scroller) {
@@ -850,7 +1070,7 @@ function selectFiles(files) {
 }
 
 function buildContents(currentAttachments) {
-  const contents = state.history.slice(-24).map(function (message) {
+  const contents = state.history.slice(-60).map(function (message) {
     let text = message.text || "";
     if (!text && message.card) {
       const card = message.card;
@@ -871,11 +1091,20 @@ function buildContents(currentAttachments) {
   return contents;
 }
 
+function shouldReuseReportContext(text) {
+  if (!state.recentReportAttachments.length) return false;
+  return /\b(?:it|this|that|these|those|them|above|report|results?|lab|marker|value|finding|solution|answer|recommend(?:ation)?|medicine|medication|treatment|dose|next steps?|what should i|what do i|how do i|and then|so what|based on|explain|elaborate|continue|more detail)\b/i.test(String(text || ""));
+}
+
 function apiErrorMessage(payload, status) {
-  if (status === 400 || status === 403) return "The cloud service could not use that API key or request. Open settings and check the key and its API access.";
+  if (payload && typeof payload.error === "string") return payload.error;
+  if (status === 400) return "The cloud service rejected the request settings. Check the app configuration and try again.";
+  if (status === 403) return "The saved API key was rejected or does not have access. Update or verify it in app settings.";
   if (status === 401) return "Add your cloud API key in settings and try again.";
+  if (status === 404) return "The cloud service is not available to this key. Check the key’s API access in settings.";
   if (status === 429) return "The cloud service is receiving too many requests right now. Please wait a moment and try again.";
   if (status === 413) return "Those files are too large to send together. Try fewer or smaller files.";
+  if (status === 502) return "The app could not connect to the cloud service. Check your internet connection and try again.";
   if (status >= 500) return "The cloud service is temporarily unavailable. Please try again shortly.";
   return "I couldn’t reach the cloud service. Check your internet connection and try again.";
 }
@@ -1057,6 +1286,9 @@ async function sendMessage(explicitText, frameAttachment) {
     showInstantExchange(messageText, greeting);
     return;
   }
+  const reportContextAttachments = !attachments.length && !utilityIntent && shouldReuseReportContext(messageText)
+    ? state.recentReportAttachments
+    : [];
   if (!state.keyReady && !utilityIntent) {
     openSettings();
     el.dialogStatus.textContent = "Add your cloud API key to start chatting.";
@@ -1078,13 +1310,14 @@ async function sendMessage(explicitText, frameAttachment) {
   }
   const attachmentLabels = attachments.map(function (item) { return { name: item.name }; });
   const userMessage = { role: "user", text: messageText, attachments: attachmentLabels };
+  if (attachments.length) state.recentReportAttachments = attachments.slice();
   state.history.push(userMessage);
   state.attachments = [];
   renderAttachments();
   renderMessage(userMessage, { forceScroll: true });
   updateWelcome();
   if (utilityIntent && handleUtilityRequest(text || messageText, attachments, userMessage, null, utilityIntent)) return;
-  const apiContents = buildContents(attachments);
+  const apiContents = buildContents(attachments.length ? attachments : reportContextAttachments);
   const pending = renderMessage({ role: "assistant", text: "" }, { loading: true });
   state.stopRequested = false;
   setBusy(true);
@@ -1139,6 +1372,7 @@ async function sendMessage(explicitText, frameAttachment) {
 function clearChat() {
   if (state.busy) return;
   state.history = [];
+  state.recentReportAttachments = [];
   state.attachments = [];
   renderAttachments();
   rerenderHistory();
@@ -1170,10 +1404,12 @@ async function startCamera() {
   }
   try {
     stopCamera();
-    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
+    const video = state.cameraDeviceId ? { deviceId: { exact: state.cameraDeviceId } } : { facingMode: "user" };
+    const stream = await navigator.mediaDevices.getUserMedia({ video: video, audio: false });
     state.cameraStream = stream;
     el.cameraVideo.srcObject = stream;
     await el.cameraVideo.play();
+    await refreshCameraDevices();
     setCameraLive(true, "Preview only. Video is shared only while live chat is connected or when you send a frame.");
   } catch (error) {
     const message = error && error.name === "NotAllowedError" ? "Camera access was not allowed. You can still type or attach an image." : "Could not start the camera. Check that it is connected and not in use.";
@@ -1643,7 +1879,7 @@ async function startLiveSession(mode) {
     if (!AudioContextClass) throw new Error("Live voice needs a modern browser with Web Audio support.");
     state.audioContext = new AudioContextClass({ latencyHint: "interactive" });
     state.audioContext.resume().catch(function () {});
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false });
+    const stream = await navigator.mediaDevices.getUserMedia(microphoneConstraints());
     if (attempt !== state.liveAttempt) { stream.getTracks().forEach(function (track) { track.stop(); }); return; }
     state.voiceStream = stream;
     const token = await requestLiveToken();
@@ -1668,7 +1904,7 @@ async function startLiveSession(mode) {
     }
   } catch (error) {
     if (attempt === state.liveAttempt) {
-      showToast(error && error.message ? error.message : "Could not start the live conversation.");
+      showToast(microphoneStartError(error));
       stopLiveSession();
       setStatus("Ready when you are", false);
     }
@@ -2022,10 +2258,10 @@ function initializeOrb() {
 
 el.modeButtons.forEach(function (button) { button.addEventListener("click", function () { setMode(button.dataset.mode); }); });
 el.workspace.addEventListener("scroll", function () {
-  if (state.mode !== "voice") updateConversationFollow(el.workspace);
+  if (state.mode === "text") updateConversationFollow(el.workspace);
 }, { passive: true });
 el.conversation.addEventListener("scroll", function () {
-  if (state.mode === "voice") updateConversationFollow(el.conversation);
+  if (state.mode !== "text") updateConversationFollow(el.conversation);
 }, { passive: true });
 document.getElementById("new-chat").addEventListener("click", clearChat);
 document.getElementById("settings-open").addEventListener("click", openSettings);
@@ -2033,6 +2269,39 @@ document.getElementById("notice-settings").addEventListener("click", openSetting
 document.getElementById("key-shortcut").addEventListener("click", openSettings);
 document.getElementById("about-open").addEventListener("click", openSettings);
 el.voiceGender.addEventListener("change", function () { setVoiceGender(el.voiceGender.value, true); });
+el.microphoneSelect.addEventListener("change", function () {
+  stopMicrophoneTest(false);
+  state.microphoneDeviceId = el.microphoneSelect.value;
+  try {
+    if (state.microphoneDeviceId) localStorage.setItem("vyoion.microphoneDeviceId", state.microphoneDeviceId);
+    else localStorage.removeItem("vyoion.microphoneDeviceId");
+  } catch (_) {}
+  showToast("Microphone saved for the next live session.");
+});
+el.cameraSelect.addEventListener("change", function () {
+  state.cameraDeviceId = el.cameraSelect.value;
+  try {
+    if (state.cameraDeviceId) localStorage.setItem("vyoion.cameraDeviceId", state.cameraDeviceId);
+    else localStorage.removeItem("vyoion.cameraDeviceId");
+  } catch (_) {}
+  if (state.cameraStream) {
+    const wasLive = state.liveMode === "video";
+    startCamera().then(function () {
+      if (!state.cameraStream) return;
+      if (wasLive) showToast("Camera changed. Start live video chat again to continue.");
+      else showToast("Camera changed.");
+    });
+  } else {
+    showToast("Camera saved for the next preview.");
+  }
+});
+el.micTestButton.addEventListener("click", toggleMicrophoneTest);
+if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
+  navigator.mediaDevices.addEventListener("devicechange", refreshMicrophoneDevices);
+  navigator.mediaDevices.addEventListener("devicechange", refreshCameraDevices);
+}
+refreshMicrophoneDevices();
+refreshCameraDevices();
 el.form.addEventListener("submit", function (event) { event.preventDefault(); sendMessage(); });
 el.stop.addEventListener("click", stopResponse);
 el.input.addEventListener("input", resizeInput);
@@ -2136,10 +2405,15 @@ document.addEventListener("fullscreenchange", function () {
 document.addEventListener("keydown", function (event) {
   if (event.key === "Escape" && el.videoPanel.classList.contains("fullscreen-fallback")) exitFallbackFullscreen();
 });
-window.addEventListener("beforeunload", function () { stopCamera(); stopVoice(); });
+window.addEventListener("beforeunload", function () { stopCamera(); stopVoice(); stopMicrophoneTest(false); });
 
 try { if (localStorage.getItem("vyoion.voiceGender") === "male") state.voiceGender = "male"; } catch (_) {}
+try { state.microphoneDeviceId = localStorage.getItem("vyoion.microphoneDeviceId") || ""; } catch (_) {}
+try { state.cameraDeviceId = localStorage.getItem("vyoion.cameraDeviceId") || ""; } catch (_) {}
 el.voiceGender.value = state.voiceGender;
+initializeHealthDisclaimer();
+refreshMicrophoneDevices();
+refreshCameraDevices();
 updateWelcome();
 refreshKeyStatus();
 initializeOrb();

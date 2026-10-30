@@ -10,6 +10,17 @@
   <script src="app.js" defer></script>
 </head>
 <body>
+  <dialog class="settings-dialog disclaimer-dialog" id="health-disclaimer-dialog" aria-labelledby="health-disclaimer-title" aria-describedby="health-disclaimer-copy">
+    <div class="dialog-eyebrow"><span class="eyebrow-line"></span> BEFORE YOU BEGIN</div>
+    <h2 id="health-disclaimer-title">A clear note about health advice</h2>
+    <p class="disclaimer-copy" id="health-disclaimer-copy">vyoiōn is an AI health information assistant, not a doctor. It can explain reports and health topics, but it cannot diagnose you or replace care from a qualified clinician. Do not rely on it for emergencies. For severe symptoms, a possible overdose, or trouble breathing, contact emergency services or poison control now.</p>
+    <form id="health-disclaimer-form">
+      <label class="field-label" for="health-disclaimer-confirm">Type <strong>I've understood</strong> to continue</label>
+      <input class="disclaimer-confirm" id="health-disclaimer-confirm" type="text" autocomplete="off" spellcheck="false" aria-describedby="health-disclaimer-status" required>
+      <p class="disclaimer-status" id="health-disclaimer-status" role="status" aria-live="polite">This confirmation appears once in this browser.</p>
+      <button class="primary-button disclaimer-continue" id="health-disclaimer-continue" type="submit" disabled>Continue to vyoiōn</button>
+    </form>
+  </dialog>
   <div class="app-shell">
     <header class="topbar">
       <div class="brand-lockup">
@@ -118,7 +129,7 @@
           <button class="send-button" id="send-button" type="submit" aria-label="Send message" title="Send message"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 14-7-4 14-3.2-5.8L5 12z"></path><path d="m11.8 13.2 3.7-4.1"></path></svg></button>
           <button class="send-button stop-button" id="stop-button" type="button" aria-label="Stop response" title="Stop response" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6.5" y="6.5" width="11" height="11" rx="1.5"></rect></svg></button>
         </form>
-          <div class="composer-meta"><span>Education only—not a diagnosis. Ask a clinician or pharmacist before changing medicines; emergencies need urgent care.</span><span class="meta-separator">·</span><span>Messages and chosen reports go to the cloud service. Chats aren’t saved by vyoiōn.</span><button type="button" class="key-shortcut" id="key-shortcut">API key</button></div>
+          <div class="composer-meta"><span>Messages and reports go to the cloud; relevant follow-ups may resend the recent report. Chats aren’t saved by vyoiōn.</span><button type="button" class="key-shortcut" id="key-shortcut">API key</button></div>
       </div>
     </footer>
   </div>
@@ -127,13 +138,14 @@
     <div class="dialog-close-wrap"><button class="dialog-close" id="dialog-close" type="button" aria-label="Close settings">×</button></div>
     <div class="dialog-eyebrow"><span class="eyebrow-line"></span> YOUR SETTINGS</div>
     <h2>Set up vyoiōn</h2>
-    <p class="dialog-intro">Add a cloud key once. vyoiōn checks access before enabling conversations.</p>
+    <p class="dialog-intro">Cloud access for this copy of vyoiōn.</p>
     <form id="key-form">
       <label class="field-label" for="api-key">Cloud API key</label>
       <div class="key-input-wrap"><input id="api-key" type="password" autocomplete="off" spellcheck="false" placeholder="Paste a fresh replacement key" required><button type="button" id="key-visibility">Show</button></div>
-      <p class="key-storage-note">The key is saved in <code>redist\api-key.txt</code> and loaded automatically on launch. It travels with the portable folder, so keep the folder private. The local process uses the key for cloud replies and short-lived live-session tokens; usage may be billed by your provider.</p>
+      <p class="key-storage-note">A key in <code>redist\api-key.txt</code> loads automatically on this PC. This private file is excluded from GitHub downloads; do not commit or share it. For shared access without client keys, use a hosted backend that stores the provider key as a server secret. Usage may be billed by your provider.</p>
       <div class="dialog-actions"><button class="secondary-button" id="forget-key" type="button">Forget key</button><button class="primary-button" id="save-key-button" type="submit">Save and verify</button></div>
     </form>
+    <p class="key-storage-note shared-api-note" id="shared-api-note" hidden>Shared cloud access is configured for this copy. No client API key is needed. Requests may be limited to protect service availability.</p>
     <div class="voice-preference">
       <label class="field-label" for="voice-gender">Narrator voice</label>
       <select id="voice-gender" class="voice-select" aria-describedby="voice-preference-note">
@@ -142,8 +154,27 @@
       </select>
       <p class="voice-preference-note" id="voice-preference-note">Spoken replies use cloud narration and may add API usage charges. Hindi and Hinglish wording follows this voice choice; new live sessions use the selected voice too. You can also change it in chat.</p>
     </div>
+    <div class="voice-preference microphone-settings">
+      <label class="field-label" for="microphone-select">Microphone</label>
+      <select id="microphone-select" class="voice-select" aria-describedby="microphone-note">
+        <option value="">System default microphone</option>
+      </select>
+      <div class="mic-test-row">
+        <button class="secondary-button" id="mic-test" type="button">Test microphone</button>
+        <div class="mic-meter" role="meter" aria-label="Microphone input level" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="mic-meter-fill"></span></div>
+      </div>
+      <p class="voice-preference-note" id="mic-test-status" role="status" aria-live="polite">Device names may appear after you allow microphone access. Test audio stays on this device.</p>
+      <p class="voice-preference-note" id="microphone-note">Voice and video chat use this microphone. Browser noise suppression, echo cancellation, and auto gain are requested for live sessions; support depends on the selected device and browser.</p>
+    </div>
+    <div class="voice-preference camera-settings">
+      <label class="field-label" for="camera-select">Camera</label>
+      <select id="camera-select" class="voice-select" aria-describedby="camera-preference-note">
+        <option value="">System default camera</option>
+      </select>
+      <p class="voice-preference-note" id="camera-preference-note">Used for the video preview and live video chat. Camera names appear after you allow camera access; your selection is saved on this device.</p>
+    </div>
     <div class="dialog-divider"></div>
-    <div class="about-copy"><div class="about-heading">About vyoiōn</div><p>vyoiōn is a portable healthcare companion made by <strong>incendo</strong>.</p><p class="dev-list">Ansh Singh · Aarav Mehta · Shiven Sharma · Dhruv Mishra</p><p class="small-disclaimer">It can help explain information, but it can’t diagnose or replace a qualified clinician.</p></div>
+    <div class="about-copy"><div class="about-heading">About vyoiōn</div><p>vyoiōn is a portable healthcare companion made by <strong>INCENDO</strong>.</p><p class="dev-list">Ansh Singh · Aarav Mehta · Shiven Sharma · Dhruv Mishra</p></div>
     <div class="dialog-status" id="dialog-status" role="status"></div>
   </dialog>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>

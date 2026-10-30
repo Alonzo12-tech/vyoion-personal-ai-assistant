@@ -74,6 +74,14 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; } }
 .send-button[hidden] { display: none; }
+.disclaimer-dialog { width: min(480px, calc(100vw - 30px)); padding: 30px; }
+.disclaimer-dialog h2 { max-width: 360px; }
+.disclaimer-copy { margin: 12px 0 22px; color: #aab5bb; font-size: 12px; line-height: 1.7; }
+.disclaimer-dialog .field-label strong { color: #e6f0ee; font-weight: 650; }
+.disclaimer-confirm { width: 100%; height: 40px; padding: 0 12px; border: 1px solid rgba(214, 226, 237, .16); border-radius: 9px; outline: none; background: #0c1115; color: #e8eff0; font: inherit; font-size: 12px; transition: border-color var(--fast), box-shadow var(--fast); }
+.disclaimer-confirm:focus { border-color: rgba(131, 228, 196, .55); box-shadow: 0 0 0 3px rgba(131, 228, 196, .08); }
+.disclaimer-status { min-height: 15px; margin: 8px 0 15px; color: #7f8b90; font-size: 9px; }
+.disclaimer-continue { width: 100%; min-height: 38px; }
 .stop-button { border-color: rgba(232, 128, 119, .36); background: linear-gradient(145deg, rgba(142, 65, 62, .95), rgba(111, 48, 48, .95)); color: #fff0ed; }
 .stop-button:hover { filter: brightness(1.12); }
 .stop-button:disabled { opacity: .62; cursor: wait; transform: none; }
@@ -101,3 +109,20 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 @media (max-width: 680px) { .welcome-mark { width: 146px; height: 68px; margin-bottom: 13px; border-radius: 16px; } }
 .workspace.mode-voice .conversation { max-height: 34vh; }
 .camera-frame video { object-fit: contain; }
+
+/* Keep the camera area fixed while the video conversation scrolls independently. */
+.workspace.mode-video { overflow: hidden; padding-bottom: 6px; }
+.workspace.mode-video .workspace-heading { flex: 0 0 auto; margin-bottom: 10px; }
+.workspace.mode-video .video-panel { flex: 0 0 auto; width: min(100%, 900px); margin-bottom: 8px; }
+.workspace.mode-video .camera-frame { height: clamp(150px, 25vh, 270px); min-height: 0; aspect-ratio: auto; }
+.workspace.mode-video .conversation { flex: 1 1 auto; min-height: 0; max-height: none; overflow-y: auto; overscroll-behavior: contain; padding-bottom: 14px; scrollbar-color: rgba(148, 163, 173, .28) transparent; scrollbar-width: thin; }
+.mic-test-row { display: flex; align-items: center; gap: 10px; margin-top: 9px; }
+.mic-test-row .secondary-button { min-width: 118px; }
+.mic-meter { flex: 1 1 auto; height: 9px; overflow: hidden; border: 1px solid rgba(214, 226, 237, .1); border-radius: 999px; background: rgba(255, 255, 255, .045); }
+.mic-meter span { display: block; width: 0; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #55b995, #a1f3d9); transition: width 90ms linear; }
+#mic-test-status.error { color: #e5a4a0; }
+@media (max-width: 680px) {
+  .workspace.mode-video { padding-top: 16px; }
+  .workspace.mode-video .workspace-heading { margin-bottom: 8px; }
+  .workspace.mode-video .camera-frame { height: clamp(135px, 22vh, 190px); }
+}

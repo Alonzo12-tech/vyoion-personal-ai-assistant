@@ -1,0 +1,23 @@
+{
+  "$schema": "https://developers.cloudflare.com/workers/wrangler/config-schema.json",
+  "name": "vyoion-shared-api",
+  "main": "src/index.js",
+  "compatibility_date": "2026-10-30",
+  "workers_dev": true,
+  "durable_objects": {
+    "bindings": [
+      { "name": "USAGE_GATE", "class_name": "UsageGate" }
+    ]
+  },
+  "exports": {
+    "UsageGate": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    }
+  },
+  "vars": {
+    "PER_IP_PER_MINUTE": "12",
+    "PER_IP_PER_DAY": "120",
+    "GLOBAL_PER_DAY": "2000"
+  }
+}
