@@ -126,3 +126,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
   .workspace.mode-video .workspace-heading { margin-bottom: 8px; }
   .workspace.mode-video .camera-frame { height: clamp(135px, 22vh, 190px); }
 }
+
+.saved-key-row { display: flex; align-items: center; gap: 8px; }
+.saved-key-select { flex: 1 1 auto; width: 0; min-width: 0; min-height: 34px; padding: 0 10px; border: 1px solid rgba(214, 226, 237, .14); border-radius: 8px; background: #0c1115; color: #e4eceb; font-size: 10px; }
+.saved-key-select:focus { outline: 1px solid rgba(131, 228, 196, .42); }
+.saved-key-select:disabled { opacity: .55; }
+.saved-key-note { margin-bottom: 14px; }

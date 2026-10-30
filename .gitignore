@@ -1,5 +1,7 @@
 # Provider credentials and local secrets
 /redist/api-key.txt
+/redist/api-keys.json
+/redist/api-keys.json.tmp
 /.env
 /.env.*
 !/.env.example

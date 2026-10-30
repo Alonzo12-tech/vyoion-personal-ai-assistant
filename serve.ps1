@@ -7,9 +7,12 @@ $ErrorActionPreference = "Stop"
 $script:Root = [System.IO.Path]::GetFullPath($PSScriptRoot)
 $script:RootPrefix = $script:Root.TrimEnd('\') + '\'
 $script:Port = $Port
-$script:ServerVersion = "2026.10.31.2"
+$script:ServerVersion = "2026.10.31.3"
 $script:ApiKey = ""
 $script:PortableKeyPath = Join-Path $PSScriptRoot "redist\api-key.txt"
+$script:ApiKeyStorePath = Join-Path $PSScriptRoot "redist\api-keys.json"
+$script:ApiKeys = [System.Collections.ArrayList]::new()
+$script:ActiveApiKeyId = ""
 $script:ApiEndpointPath = Join-Path $PSScriptRoot "redist\api-endpoint.txt"
 $script:ApiEndpoint = ""
 if (Test-Path -LiteralPath $script:ApiEndpointPath -PathType Leaf) {
@@ -25,9 +28,90 @@ if (Test-Path -LiteralPath $script:ApiEndpointPath -PathType Leaf) {
         }
     } catch { $script:ApiEndpoint = "" }
 }
-if (-not $script:ApiEndpoint -and (Test-Path -LiteralPath $script:PortableKeyPath -PathType Leaf)) {
-    try { $script:ApiKey = [System.IO.File]::ReadAllText($script:PortableKeyPath).Trim() } catch { $script:ApiKey = "" }
+function New-ApiKeyLabel([string]$Key, [int]$Index = 0) {
+    $suffix = if ($Key.Length -ge 4) { $Key.Substring($Key.Length - 4) } else { $Key }
+    if ($suffix) { return "Saved key $Index (ending $suffix)" }
+    return "Saved key $Index"
 }
+
+function Save-ApiKeyStore {
+    $directory = [System.IO.Path]::GetDirectoryName($script:ApiKeyStorePath)
+    if (-not (Test-Path -LiteralPath $directory -PathType Container)) { [void](New-Item -ItemType Directory -Path $directory -Force) }
+    if ($script:ApiKeys.Count -eq 0) {
+        if (Test-Path -LiteralPath $script:ApiKeyStorePath -PathType Leaf) { Remove-Item -LiteralPath $script:ApiKeyStorePath -Force }
+        return
+    }
+    $entries = @($script:ApiKeys | ForEach-Object { @{ id = [string]$_.id; label = [string]$_.label; key = [string]$_.key } })
+    $store = @{ version = 1; activeId = [string]$script:ActiveApiKeyId; keys = $entries }
+    $json = ConvertTo-Json -InputObject $store -Depth 5
+    $temporaryPath = $script:ApiKeyStorePath + ".tmp"
+    [System.IO.File]::WriteAllText($temporaryPath, $json, [System.Text.UTF8Encoding]::new($false))
+    try {
+        if (Test-Path -LiteralPath $script:ApiKeyStorePath -PathType Leaf) {
+            [System.IO.File]::Replace($temporaryPath, $script:ApiKeyStorePath, $null)
+        } else {
+            [System.IO.File]::Move($temporaryPath, $script:ApiKeyStorePath)
+        }
+    } catch {
+        Move-Item -LiteralPath $temporaryPath -Destination $script:ApiKeyStorePath -Force
+    } finally {
+        if (Test-Path -LiteralPath $temporaryPath -PathType Leaf) { Remove-Item -LiteralPath $temporaryPath -Force }
+    }
+}
+
+function Import-ApiKeyStore {
+    $legacyKey = ""
+    if (Test-Path -LiteralPath $script:ApiKeyStorePath -PathType Leaf) {
+        try {
+            $savedStore = [System.IO.File]::ReadAllText($script:ApiKeyStorePath) | ConvertFrom-Json
+            foreach ($entry in @($savedStore.keys)) {
+                $keyValue = ([string]$entry.key).Trim()
+                if (-not $keyValue) { continue }
+                $keyId = [string]$entry.id
+                if (-not $keyId) { $keyId = [Guid]::NewGuid().ToString("N") }
+                $label = [string]$entry.label
+                if (-not $label) { $label = New-ApiKeyLabel -Key $keyValue -Index ($script:ApiKeys.Count + 1) }
+                [void]$script:ApiKeys.Add([pscustomobject]@{ id = $keyId; label = $label; key = $keyValue })
+            }
+            $script:ActiveApiKeyId = [string]$savedStore.activeId
+        } catch {
+            $script:ApiKeys.Clear()
+            $script:ActiveApiKeyId = ""
+        }
+    }
+    if ($script:ApiKeys.Count -eq 0 -and (Test-Path -LiteralPath $script:PortableKeyPath -PathType Leaf)) {
+        try { $legacyKey = [System.IO.File]::ReadAllText($script:PortableKeyPath).Trim() } catch { $legacyKey = "" }
+        if ($legacyKey) {
+            $legacyId = [Guid]::NewGuid().ToString("N")
+            [void]$script:ApiKeys.Add([pscustomobject]@{ id = $legacyId; label = (New-ApiKeyLabel -Key $legacyKey -Index 1); key = $legacyKey })
+            $script:ActiveApiKeyId = $legacyId
+            Save-ApiKeyStore
+            Remove-Item -LiteralPath $script:PortableKeyPath -Force -ErrorAction SilentlyContinue
+        }
+    }
+    $activeEntry = @($script:ApiKeys | Where-Object { $_.id -eq $script:ActiveApiKeyId } | Select-Object -First 1)
+    if ($activeEntry.Count -eq 0 -and $script:ApiKeys.Count -gt 0) {
+        $activeEntry = @($script:ApiKeys[$script:ApiKeys.Count - 1])
+        $script:ActiveApiKeyId = [string]$activeEntry[0].id
+    }
+    if ($activeEntry.Count -gt 0) {
+        $script:ApiKey = [string]$activeEntry[0].key
+        if ($script:ActiveApiKeyId) { Save-ApiKeyStore }
+    }
+}
+
+function Get-ApiKeyProfiles {
+    $profiles = @($script:ApiKeys | ForEach-Object {
+        [pscustomobject]@{
+            id = [string]$_.id
+            label = [string]$_.label
+            selected = ([string]$_.id -eq [string]$script:ActiveApiKeyId)
+        }
+    })
+    return ,$profiles
+}
+
+if (-not $script:ApiEndpoint) { Import-ApiKeyStore }
 if (-not $script:ApiEndpoint -and -not $script:ApiKey -and $env:GEMINI_API_KEY) { $script:ApiKey = $env:GEMINI_API_KEY.Trim() }
 $script:ApiReady = [bool]($script:ApiEndpoint -or $script:ApiKey)
 $script:SharedApi = [bool]$script:ApiEndpoint
@@ -496,9 +580,9 @@ try {
     if ($script:SharedApi) {
         Write-Host "  Cloud access uses the hosted shared service; no client API key is loaded." -ForegroundColor DarkGray
     } else {
-        Write-Host "  The API key stays in this running local process memory." -ForegroundColor DarkGray
+        Write-Host "  Saved API keys stay in the local ignored key vault on this PC." -ForegroundColor DarkGray
     }
-    Write-Host "  Close this window to stop the app and forget the key." -ForegroundColor DarkGray
+    Write-Host "  Close this window to stop the app; the local saved keys remain available next time." -ForegroundColor DarkGray
     Write-Host ""
     if (-not $NoBrowser) {
         try {
@@ -579,10 +663,14 @@ try {
                 continue
             }
             if ($method -eq "GET" -and $pathOnly -eq "/api/status") {
-                Write-JsonResponse -Stream $stream -StatusCode 200 -StatusText "OK" -Payload @{ configured = [bool]$script:ApiReady; shared = [bool]$script:SharedApi; version = $script:ServerVersion; port = $script:Port }
+                Write-JsonResponse -Stream $stream -StatusCode 200 -StatusText "OK" -Payload @{ configured = [bool]$script:ApiReady; shared = [bool]$script:SharedApi; version = $script:ServerVersion; port = $script:Port; activeKeyId = [string]$script:ActiveApiKeyId; keyCount = $script:ApiKeys.Count }
                 continue
             }
-            if ($method -eq "POST" -and ($pathOnly -eq "/api/key" -or $pathOnly -eq "/api/verify-key" -or $pathOnly -eq "/api/chat" -or $pathOnly -eq "/api/live-token" -or $pathOnly -eq "/api/speech")) {
+            if ($method -eq "GET" -and $pathOnly -eq "/api/keys") {
+                Write-JsonResponse -Stream $stream -StatusCode 200 -StatusText "OK" -Payload @{ keys = (Get-ApiKeyProfiles); activeId = [string]$script:ActiveApiKeyId }
+                continue
+            }
+            if ($method -eq "POST" -and ($pathOnly -eq "/api/key" -or $pathOnly -eq "/api/key/select" -or $pathOnly -eq "/api/key/remove" -or $pathOnly -eq "/api/verify-key" -or $pathOnly -eq "/api/chat" -or $pathOnly -eq "/api/live-token" -or $pathOnly -eq "/api/speech")) {
                 $expectedHost = "127.0.0.1:$($script:Port)"
                 $expectedOrigin = "http://$expectedHost"
                 if ($hostHeader -ine $expectedHost -or $originHeader -ine $expectedOrigin) {
@@ -599,19 +687,88 @@ try {
                     $payload = [System.Text.Encoding]::UTF8.GetString($bodyStream.ToArray()) | ConvertFrom-Json
                     if ($null -eq $payload.key -or $payload.key -is [string]) {
                         $newKey = ([string]$payload.key).Trim()
-                        if ($newKey) {
-                            [System.IO.File]::WriteAllText($script:PortableKeyPath, $newKey, [System.Text.UTF8Encoding]::new($false))
-                        } elseif (Test-Path -LiteralPath $script:PortableKeyPath -PathType Leaf) {
-                            Remove-Item -LiteralPath $script:PortableKeyPath -Force
+                        if (-not $newKey -or $newKey.Length -gt 4096 -or $newKey -match '[\r\n]') {
+                            Write-JsonResponse -Stream $stream -StatusCode 400 -StatusText "Bad Request" -Payload @{ error = "Enter a valid API key." }
+                            continue
+                        }
+                        $existingKey = @($script:ApiKeys | Where-Object { [string]$_.key -ceq $newKey } | Select-Object -First 1)
+                        if ($existingKey.Count -gt 0) {
+                            $script:ActiveApiKeyId = [string]$existingKey[0].id
+                        } else {
+                            $newId = [Guid]::NewGuid().ToString("N")
+                            $labelIndex = $script:ApiKeys.Count + 1
+                            $newLabel = New-ApiKeyLabel -Key $newKey -Index $labelIndex
+                            while (@($script:ApiKeys | Where-Object { [string]$_.label -ceq $newLabel }).Count -gt 0) {
+                                $labelIndex++
+                                $newLabel = New-ApiKeyLabel -Key $newKey -Index $labelIndex
+                            }
+                            [void]$script:ApiKeys.Add([pscustomobject]@{ id = $newId; label = $newLabel; key = $newKey })
+                            $script:ActiveApiKeyId = $newId
                         }
                         $script:ApiKey = $newKey
                         $script:ApiReady = [bool]$script:ApiKey
-                        Write-JsonResponse -Stream $stream -StatusCode 200 -StatusText "OK" -Payload @{ configured = [bool]$script:ApiReady; shared = [bool]$script:SharedApi }
+                        Save-ApiKeyStore
+                    Write-JsonResponse -Stream $stream -StatusCode 200 -StatusText "OK" -Payload @{ configured = [bool]$script:ApiReady; shared = [bool]$script:SharedApi; activeId = [string]$script:ActiveApiKeyId; keys = (Get-ApiKeyProfiles) }
                     } else {
                         Write-JsonResponse -Stream $stream -StatusCode 400 -StatusText "Bad Request" -Payload @{ error = "API key must be text." }
                     }
                 } catch {
                     Write-JsonResponse -Stream $stream -StatusCode 400 -StatusText "Bad Request" -Payload @{ error = "Could not read the API key." }
+                }
+                continue
+            }
+            if ($method -eq "POST" -and $pathOnly -eq "/api/key/select") {
+                if ($script:SharedApi) {
+                    Write-JsonResponse -Stream $stream -StatusCode 409 -StatusText "Conflict" -Payload @{ error = "This copy uses the shared cloud service." }
+                    continue
+                }
+                try {
+                    $payload = [System.Text.Encoding]::UTF8.GetString($bodyStream.ToArray()) | ConvertFrom-Json
+                    $selectedId = [string]$payload.id
+                    $selectedKey = @($script:ApiKeys | Where-Object { [string]$_.id -ceq $selectedId } | Select-Object -First 1)
+                    if (-not $selectedId -or $selectedKey.Count -eq 0) {
+                        Write-JsonResponse -Stream $stream -StatusCode 404 -StatusText "Not Found" -Payload @{ error = "That saved key is no longer available." }
+                        continue
+                    }
+                    $script:ActiveApiKeyId = [string]$selectedKey[0].id
+                    $script:ApiKey = [string]$selectedKey[0].key
+                    $script:ApiReady = [bool]$script:ApiKey
+                    Save-ApiKeyStore
+                    Write-JsonResponse -Stream $stream -StatusCode 200 -StatusText "OK" -Payload @{ configured = [bool]$script:ApiReady; activeId = [string]$script:ActiveApiKeyId; keys = (Get-ApiKeyProfiles) }
+                } catch {
+                    Write-JsonResponse -Stream $stream -StatusCode 400 -StatusText "Bad Request" -Payload @{ error = "Could not select the saved key." }
+                }
+                continue
+            }
+            if ($method -eq "POST" -and $pathOnly -eq "/api/key/remove") {
+                if ($script:SharedApi) {
+                    Write-JsonResponse -Stream $stream -StatusCode 409 -StatusText "Conflict" -Payload @{ error = "This copy uses the shared cloud service." }
+                    continue
+                }
+                try {
+                    $payload = [System.Text.Encoding]::UTF8.GetString($bodyStream.ToArray()) | ConvertFrom-Json
+                    $removeId = [string]$payload.id
+                    $removeIndex = -1
+                    for ($keyIndex = 0; $keyIndex -lt $script:ApiKeys.Count; $keyIndex++) {
+                        if ([string]$script:ApiKeys[$keyIndex].id -ceq $removeId) { $removeIndex = $keyIndex; break }
+                    }
+                    if ($removeIndex -lt 0) {
+                        Write-JsonResponse -Stream $stream -StatusCode 404 -StatusText "Not Found" -Payload @{ error = "That saved key is no longer available." }
+                        continue
+                    }
+                    $wasActive = [string]$script:ApiKeys[$removeIndex].id -ceq [string]$script:ActiveApiKeyId
+                    $script:ApiKeys.RemoveAt($removeIndex)
+                    if ($wasActive) {
+                        if ($script:ApiKeys.Count -gt 0) { $script:ActiveApiKeyId = [string]$script:ApiKeys[$script:ApiKeys.Count - 1].id }
+                        else { $script:ActiveApiKeyId = "" }
+                    }
+                    $nextKey = @($script:ApiKeys | Where-Object { [string]$_.id -ceq [string]$script:ActiveApiKeyId } | Select-Object -First 1)
+                    $script:ApiKey = if ($nextKey.Count -gt 0) { [string]$nextKey[0].key } else { "" }
+                    $script:ApiReady = [bool]$script:ApiKey
+                    Save-ApiKeyStore
+                    Write-JsonResponse -Stream $stream -StatusCode 200 -StatusText "OK" -Payload @{ configured = [bool]$script:ApiReady; activeId = [string]$script:ActiveApiKeyId; keys = (Get-ApiKeyProfiles) }
+                } catch {
+                    Write-JsonResponse -Stream $stream -StatusCode 400 -StatusText "Bad Request" -Payload @{ error = "Could not remove the saved key." }
                 }
                 continue
             }
@@ -773,7 +930,7 @@ try {
             if ($pathOnly -eq "/") { $pathOnly = "/index.html" }
             $relativePath = $pathOnly.TrimStart('/').Replace('/', [System.IO.Path]::DirectorySeparatorChar)
             $normalizedRelativePath = $relativePath.Replace('\', '/')
-            if ($normalizedRelativePath -match '(?i)(^|/)(?:api-key\.txt|\.env(?:\.[^/]*)?|\.dev\.vars(?:\.[^/]*)?)$' -or $normalizedRelativePath -match '^(?:\.git|\.wrangler)(?:/|$)') {
+            if ($normalizedRelativePath -match '(?i)(^|/)(?:api-key\.txt|api-keys\.json|api-keys\.json\.tmp|\.env(?:\.[^/]*)?|\.dev\.vars(?:\.[^/]*)?)$' -or $normalizedRelativePath -match '^(?:\.git|\.wrangler)(?:/|$)') {
                 Write-PlainResponse -Stream $stream -StatusCode 404 -StatusText "Not Found" -Text "Not found"
                 continue
             }

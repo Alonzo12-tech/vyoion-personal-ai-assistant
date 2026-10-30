@@ -1,7 +1,7 @@
 $ErrorActionPreference = "Stop"
 $basePort = 43187
 $lastPort = 43217
-$expectedVersion = "2026.10.31.2"
+$expectedVersion = "2026.10.31.3"
 $brand = "vyoi" + [char]0x014D + "n"
 
 function Test-LocalPort {

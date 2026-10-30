@@ -8,10 +8,12 @@ Requirements:
 - Windows with Windows PowerShell
 - A modern browser
 - Internet access for cloud API requests
-- A hosted endpoint in api-endpoint.txt for client downloads, or a private maintainer key file at api-key.txt
-- Save and verify sends one brief setup request; provider usage may be billed
+- Each user provides a Gemini API key once in Settings; the app saves and selects keys locally
+- Save and verify sends one brief setup request; check the provider's current limits and account terms
 - Attachments totaling up to 12 MB per request
 
-For a client download, api-endpoint.txt contains the public address of the shared hosted service. The provider key stays in that service as a secret; clients do not enter or receive it. The endpoint can be shared publicly. The maintainer's optional api-key.txt is plain text, excluded from Git, and must not be published or distributed. Settings may save a local key only when no hosted endpoint is configured. Remove api-key.txt and restart the launcher to clear the local key.
+Open Settings from the API key link in the app's lower bar. Paste a key and choose Save and verify. It is saved in api-keys.json and reloaded on later launches. Add more keys any time; use the Saved API keys list to switch between them, or Forget selected to remove one. The older api-key.txt file is migrated automatically when the app starts.
+
+api-keys.json and api-key.txt are local plain-text secrets and are excluded from GitHub. Do not put a key in public documentation, commit one, or include these files in a zip shared with other people. A GitHub download has no saved key; each PC user enters their own once. Treat even free-tier API keys like passwords and rotate keys that have been exposed.
 
 Camera and microphone features need browser permission. Preview remains local until you start live video chat or explicitly ask vyoiōn to analyze one still frame. While live video chat is connected, microphone audio and up to one camera frame per second are sent to the cloud; usage may be billed.

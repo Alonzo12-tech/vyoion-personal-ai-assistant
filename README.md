@@ -1,42 +1,48 @@
 # vyoiōn portable healthcare companion
 
-## Start
+vyoiōn is a portable Windows app by INCENDO for explaining health information and medical reports in plain language. It runs in your browser and uses your Gemini API key for cloud responses.
 
-On Windows, double-click start-vyoion.bat. It opens vyoiōn in your default browser. Leave the PowerShell window open while using the app; closing it stops that server. The launcher keeps the window open and reuses only a matching current server.
+## Start on Windows
 
-No installer, Node.js, Python, or third-party runtime is required. The launcher uses Windows PowerShell and serves files only to 127.0.0.1, trying ports 43187–43217. If an older copy is still running, it leaves that process alone and starts the updated app on the next free port; use the URL printed in the PowerShell window.
+1. Download or unzip the project folder.
+2. Double-click `start-vyoion.bat`.
+3. Keep the PowerShell window open while using vyoiōn. Closing it stops the local app server.
 
-## First use
+No separate Python, Node.js, or app installer is needed for personal API-key mode. The launcher uses Windows PowerShell and opens the app in your default browser. Use a current browser and an internet connection for cloud features.
 
-The maintainer copy loads `redist/api-key.txt` automatically. GitHub clones intentionally do not contain that private file. After the shared Cloudflare Worker is deployed, `redist/api-endpoint.txt` contains its public address; client copies use the hosted service without asking users for a provider key. If no hosted endpoint is configured, a private local copy can use a key in Settings.
+## Set up your own Gemini API key
 
-The key file is plain text inside the maintainer's local portable folder. It is loaded into the local PowerShell process on launch and never sent to browser storage. Anyone who gets a copy can use the key and incur provider charges. Do not commit it, publish it, or distribute it to clients. Replace or remove the file to rotate or clear it. The app also accepts `GEMINI_API_KEY` from the process environment when no key file exists. The Cloudflare Worker source and deployment steps are in [`cloudflare/worker/README.md`](cloudflare/worker/README.md); the provider key is uploaded as a Worker secret.
+Each person using a downloaded copy needs a Gemini API key from their own Google AI Studio account. The repository does not provide a key.
 
-## Features
+1. Create or copy a key from [Google AI Studio](https://aistudio.google.com/app/apikey). Review the current account, usage, and billing limits there.
+2. Start vyoiōn and select **API key** in the bottom bar, or open **Settings**.
+3. Paste your key and select **Save and verify**. A successful verification makes the cloud features ready.
+4. On later launches, vyoiōn automatically selects your saved key. To switch keys, open **API key** and choose one under **Saved API keys**. Add another key to keep both available, or choose **Forget selected** to remove one from this PC.
 
-- Text, voice, and video conversation modes.
-- PDF and image attachments for report explanation.
-- Attachments can total up to 12 MB per request.
-- Optional camera preview with a separate full-screen view. Preview stays local until you start live video chat or choose Ask about this frame.
-- Voice chat streams microphone audio to the live cloud conversation only after you start it. Typed and report replies in voice mode use cloud narration with a feminine default and a masculine option; the on-screen words appear in step with playback. Hindi and Hinglish self-reference follows the selected narrator. Selecting a report or image ends the live session before file analysis so two audio replies cannot overlap. Narration uses an additional cloud request and may add provider usage charges. If narration is unavailable, the browser’s built-in voice is used as a fallback.
-- Settings let you select an input microphone, check its local audio level, and choose the camera used for preview and live video. Device choices are saved on the current device. Live sessions request the browser/device’s noise suppression and echo cancellation; actual support varies by device and browser.
-- The voice sphere reacts to your voice and the assistant’s live audio.
-- Video chat streams microphone audio and up to one camera frame per second while live chat is connected. Live cloud usage may be billed by your API provider.
-- Chat messages and report contents are held in memory for the current browser session. Follow-up replies use recent conversation context; relevant follow-ups can resend the most recently shared report so the assistant can refer to its contents. vyoiōn does not save chat history to this folder.
-- Text chat opens with Thinking Off selected. The Off control uses the lowest reasoning setting available for the configured cloud model; the provider does not guarantee that all internal reasoning is disabled. Choose Low, Mid, or High for written replies and single-frame questions. If another level has not started streaming after three seconds, it retries once at Off. That retry may use extra provider quota. Voice and live video use a separate real-time conversation mode, so the Thinking control does not change them. Simple greetings are answered locally for an immediate reply. Cloud response time can still vary.
-- vyoiōn follows the user’s language and supports English, Hindi, and natural Hinglish replies.
-- Weather requests show a location prompt if no city or country is named. The card shows the latest available Open-Meteo forecast-model conditions, the data time in that place’s GMT offset, and a refresh button; model data can differ from local weather-station readings. A time request without a named place immediately asks the browser for location permission, then shows the device’s local time and GMT offset when allowed. If permission is denied, the app explains how to allow it in browser settings. Place and map cards use Open-Meteo geocoding and OpenStreetMap maps.
+Keys are saved in `redist/api-keys.json` on that PC so you do not have to enter them every time. This is a plain-text local file, excluded from GitHub. Keep the computer and folder private, and do not put this file or `redist/api-key.txt` in a Git commit, screenshot, shared zip, or public upload. A new clone or another PC has no saved key; its user must set up their own. The older `redist/api-key.txt` file is imported locally if present.
+
+If Settings says **Shared cloud access**, this copy has `redist/api-endpoint.txt` configured and uses its owner's hosted service instead of a personal key. To use your own key, remove that endpoint file and restart vyoiōn. Shared-service requests use the service owner's provider account and limits; do not publish a shared endpoint unless you intend to operate that service.
+
+If verification fails, check that the key is complete and active in your AI Studio account, that the required Gemini API is available to its project, and that your account has remaining quota. You can remove a bad saved key in Settings and save a replacement.
+
+## What vyoiōn can do
+
+- Text, voice, and video conversations, with a selectable thinking level for text replies.
+- PDF and image uploads for medical-report explanations.
+- Optional camera preview and live video conversation.
+- Weather, local-time, and place cards when relevant to a request.
+- Microphone selection and a local microphone test in Settings.
 
 ## Privacy and healthcare
 
-The app does not store report files or chat history in the project folder. Text messages and chosen reports go to the cloud service when you send them. Weather and place searches are sent to Open-Meteo; map previews load from OpenStreetMap. A time request without a named place triggers the browser location prompt; coordinates are used only if you allow access. Other current-location lookups use the app’s location button and browser permission. Microphone selection and the microphone test are local settings; test audio is not sent to the cloud. Live voice and video send microphone audio to the live cloud session while connected. Noise suppression and echo cancellation are requested from the browser/device for those sessions. During live video chat, up to one camera frame per second is streamed while connected; a still camera frame is sent only when you choose to ask about it. Use only files, camera, and microphone input you are comfortable sharing with the cloud service.
+Messages and selected report files are sent to the configured cloud service when you submit them. Live voice sends microphone audio while connected; live video can send camera frames while connected. The app keeps chat history in memory for the current browser session and does not save it to this project folder. Avoid sharing information you do not want processed by the configured service.
 
-vyoiōn explains information for education. It does not diagnose, replace a clinician, or provide emergency care. Seek urgent in-person help for severe or sudden symptoms.
+vyoiōn provides educational explanations and is not a substitute for emergency care. Seek urgent help for severe or sudden symptoms.
 
-The assistant’s refusal to disclose private app details is a model instruction, not a way to hide local files. Anyone with the portable folder can inspect or change its source code.
+## Optional shared cloud service
 
-## Portable folder
+The Cloudflare Worker is an optional deployment for teams that want to operate a shared service. It keeps the provider key as a Cloudflare secret; clients using that endpoint do not enter personal keys. Deployment instructions and limits are in [`cloudflare/worker/README.md`](cloudflare/worker/README.md). For a GitHub download where each client supplies their own key, do not include `redist/api-endpoint.txt`.
 
-On another Windows PC, double-click start-vyoion.bat. The hosted endpoint is public configuration and can travel in a GitHub download; the provider key stays in the Worker secret. Clients need an internet connection and a supported modern browser for cloud AI, microphone, and camera features. Camera and microphone access depend on browser permission prompts.
+## Repository safety
 
-interactive_webgl_particle_orb.tsx is the original orb reference file and is kept unchanged. The running app uses a local canvas-based microphone-reactive sphere so it needs no external packages.
+Never put an API key, access token, or other credential in source files, documentation, commit messages, or screenshots. `.gitignore` excludes local key files, but still review `git status` and the changes being committed before pushing. If a key has been shared or committed, revoke it in Google AI Studio and create a replacement; deleting it from the latest file alone does not remove it from older commits.

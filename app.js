@@ -88,6 +88,7 @@ const el = {
   healthDisclaimerContinue: document.getElementById("health-disclaimer-continue"),
   healthDisclaimerStatus: document.getElementById("health-disclaimer-status"),
   keyInput: document.getElementById("api-key"),
+  savedKeySelect: document.getElementById("saved-api-key"),
   keyForm: document.getElementById("key-form"),
   keyShortcut: document.getElementById("key-shortcut"),
   sharedApiNote: document.getElementById("shared-api-note"),
@@ -179,7 +180,11 @@ function openSettings() {
   if (!el.dialog.open) el.dialog.showModal();
   refreshMicrophoneDevices();
   refreshCameraDevices();
-  if (!state.sharedApi) window.setTimeout(function () { el.keyInput.focus(); }, 60);
+  if (!state.sharedApi) {
+    refreshSavedKeys().then(function (result) {
+      window.setTimeout(function () { (result.keys.length ? el.savedKeySelect : el.keyInput).focus(); }, 60);
+    }).catch(function () { window.setTimeout(function () { el.keyInput.focus(); }, 60); });
+  }
 }
 
 function setVoiceGender(gender, announce) {
@@ -375,6 +380,62 @@ async function saveKey(key) {
   if (!response.ok) throw new Error(result.error || "Could not configure the local app.");
   state.keyReady = Boolean(result.configured);
   el.keyInput.value = "";
+  await refreshSavedKeys(result.activeId);
+  updateWelcome();
+  return state.keyReady;
+}
+
+async function refreshSavedKeys(preferredId) {
+  const response = await fetch("/api/keys", { cache: "no-store" });
+  let result = {};
+  try { result = await response.json(); } catch (_) {}
+  if (!response.ok) throw new Error(result.error || "Could not load saved API keys.");
+  const keys = Array.isArray(result.keys) ? result.keys : [];
+  const selectedId = preferredId || result.activeId || "";
+  el.savedKeySelect.replaceChildren();
+  if (!keys.length) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "No saved keys yet";
+    el.savedKeySelect.appendChild(option);
+  } else {
+    keys.forEach(function (profile, index) {
+      const option = document.createElement("option");
+      option.value = String(profile.id || "");
+      option.textContent = String(profile.label || ("Saved key " + (index + 1)));
+      el.savedKeySelect.appendChild(option);
+    });
+    if (keys.some(function (profile) { return String(profile.id) === selectedId; })) el.savedKeySelect.value = selectedId;
+  }
+  document.getElementById("forget-key").disabled = !el.savedKeySelect.value || state.sharedApi;
+  return { keys: keys, activeId: result.activeId || "" };
+}
+
+async function selectSavedKey(id) {
+  const response = await fetch("/api/key/select", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id: id })
+  });
+  let result = {};
+  try { result = await response.json(); } catch (_) {}
+  if (!response.ok) throw new Error(result.error || "Could not select that saved key.");
+  state.keyReady = Boolean(result.configured);
+  await refreshSavedKeys(result.activeId);
+  updateWelcome();
+}
+
+async function removeSavedKey(id) {
+  const response = await fetch("/api/key/remove", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id: id })
+  });
+  let result = {};
+  try { result = await response.json(); } catch (_) {}
+  if (!response.ok) throw new Error(result.error || "Could not remove that saved key.");
+  state.keyReady = Boolean(result.configured);
+  await refreshSavedKeys(result.activeId);
   updateWelcome();
   return state.keyReady;
 }
@@ -408,6 +469,7 @@ async function refreshKeyStatus() {
   el.keyForm.hidden = state.sharedApi;
   el.sharedApiNote.hidden = !state.sharedApi;
   el.keyShortcut.textContent = state.sharedApi ? "Cloud service" : "API key";
+  if (!state.sharedApi) { try { await refreshSavedKeys(); } catch (_) {} }
   updateWelcome();
 }
 
@@ -2319,7 +2381,11 @@ el.thinkingOptions.forEach(function (button) {
 document.getElementById("key-form").addEventListener("submit", async function (event) {
   event.preventDefault();
   const key = el.keyInput.value.trim();
-  if (!key) return;
+  if (!key) {
+    el.dialogStatus.classList.add("error");
+    el.dialogStatus.textContent = "Choose a saved key above or enter a new key first.";
+    return;
+  }
   const saveButton = document.getElementById("save-key-button");
   saveButton.disabled = true;
   saveButton.textContent = "Verifying…";
@@ -2339,17 +2405,46 @@ document.getElementById("key-form").addEventListener("submit", async function (e
     window.setTimeout(closeSettings, 300);
   } catch (error) {
     if (error && error.invalidKey) {
-      try { await saveKey(""); } catch (_) { state.keyReady = false; updateWelcome(); }
-      el.dialogStatus.textContent = error.message;
+      state.keyReady = false;
+      updateWelcome();
+      try { await refreshSavedKeys(); } catch (_) {}
+      el.dialogStatus.textContent = (error.message || "This key could not be verified.") + " It remains saved; choose a different key or enter a working one.";
     } else {
       state.keyReady = true;
       updateWelcome();
-      el.dialogStatus.textContent = (error && error.message ? error.message : "The cloud check did not finish.") + " The key is still saved for this session.";
+      el.dialogStatus.textContent = (error && error.message ? error.message : "The cloud check did not finish.") + " The key is saved on this PC; you can retry verification later.";
     }
     el.dialogStatus.classList.add("error");
   } finally {
     saveButton.disabled = false;
     saveButton.textContent = "Save and verify";
+  }
+});
+el.savedKeySelect.addEventListener("change", async function () {
+  const id = el.savedKeySelect.value;
+  if (!id) return;
+  el.savedKeySelect.disabled = true;
+  document.getElementById("forget-key").disabled = true;
+  el.dialogStatus.classList.remove("error");
+  el.dialogStatus.textContent = "Switching to the saved key and checking access…";
+  try {
+    await selectSavedKey(id);
+    state.keyReady = false;
+    updateWelcome();
+    await verifyKeyAccess();
+    state.keyReady = true;
+    updateWelcome();
+    el.dialogStatus.textContent = "Saved key selected and verified.";
+    el.dialogStatus.classList.remove("error");
+    setStatus("Ready when you are", false);
+  } catch (error) {
+    state.keyReady = !(error && error.invalidKey);
+    updateWelcome();
+    el.dialogStatus.textContent = (error && error.message ? error.message : "Could not verify the selected key.") + (error && error.invalidKey ? " It is still saved; choose another key or add a new one." : " The key remains saved, so you can retry later.");
+    el.dialogStatus.classList.add("error");
+  } finally {
+    el.savedKeySelect.disabled = false;
+    try { await refreshSavedKeys(id); } catch (_) {}
   }
 });
 el.keyVisibility.addEventListener("click", function () {
@@ -2358,14 +2453,31 @@ el.keyVisibility.addEventListener("click", function () {
   el.keyVisibility.textContent = visible ? "Hide" : "Show";
 });
 document.getElementById("forget-key").addEventListener("click", async function () {
-  el.keyInput.value = "";
+  const id = el.savedKeySelect.value;
+  if (!id) return;
+  const label = el.savedKeySelect.options[el.savedKeySelect.selectedIndex]?.textContent || "this saved key";
+  if (!window.confirm("Remove " + label + " from this PC?")) return;
+  const forgetButton = document.getElementById("forget-key");
+  forgetButton.disabled = true;
   try {
-    await saveKey("");
+    const configured = await removeSavedKey(id);
+    if (configured) {
+      state.keyReady = false;
+      await verifyKeyAccess();
+      state.keyReady = true;
+      updateWelcome();
+      el.dialogStatus.textContent = "Saved key removed. The remaining selected key is verified.";
+    } else {
+      el.dialogStatus.textContent = "Saved key removed from this PC.";
+    }
     el.dialogStatus.classList.remove("error");
-    el.dialogStatus.textContent = "The key has been removed from the local app process.";
   } catch (error) {
-    el.dialogStatus.textContent = error.message;
+    if (error && error.invalidKey) state.keyReady = false;
+    updateWelcome();
+    el.dialogStatus.textContent = (error && error.message ? error.message : "Could not check the remaining key.") + " The selected key was removed; choose another saved key or add a new one.";
     el.dialogStatus.classList.add("error");
+  } finally {
+    forgetButton.disabled = !el.savedKeySelect.value || state.sharedApi;
   }
 });
 el.micToggle.addEventListener("click", toggleVoice);

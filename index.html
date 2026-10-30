@@ -140,10 +140,13 @@
     <h2>Set up vyoiōn</h2>
     <p class="dialog-intro">Cloud access for this copy of vyoiōn.</p>
     <form id="key-form">
+      <label class="field-label" for="saved-api-key">Saved API keys</label>
+      <div class="saved-key-row"><select id="saved-api-key" class="saved-key-select" aria-label="Choose a saved API key"><option value="">No saved keys yet</option></select><button class="secondary-button" id="forget-key" type="button" disabled>Forget selected</button></div>
+      <p class="key-storage-note saved-key-note">Choose a saved key to switch back to it, or add another key below. Saved keys stay on this PC.</p>
       <label class="field-label" for="api-key">Cloud API key</label>
-      <div class="key-input-wrap"><input id="api-key" type="password" autocomplete="off" spellcheck="false" placeholder="Paste a fresh replacement key" required><button type="button" id="key-visibility">Show</button></div>
-      <p class="key-storage-note">A key in <code>redist\api-key.txt</code> loads automatically on this PC. This private file is excluded from GitHub downloads; do not commit or share it. For shared access without client keys, use a hosted backend that stores the provider key as a server secret. Usage may be billed by your provider.</p>
-      <div class="dialog-actions"><button class="secondary-button" id="forget-key" type="button">Forget key</button><button class="primary-button" id="save-key-button" type="submit">Save and verify</button></div>
+      <div class="key-input-wrap"><input id="api-key" type="password" autocomplete="off" spellcheck="false" placeholder="Paste another API key"><button type="button" id="key-visibility">Show</button></div>
+      <p class="key-storage-note">The app saves keys in a private, Git-ignored local file so you only enter each key once. The file is plain text on this PC; do not commit or share it. A downloaded copy needs its own key. Provider usage limits and charges depend on your account.</p>
+      <div class="dialog-actions"><span></span><button class="primary-button" id="save-key-button" type="submit">Save and verify</button></div>
     </form>
     <p class="key-storage-note shared-api-note" id="shared-api-note" hidden>Shared cloud access is configured for this copy. No client API key is needed. Requests may be limited to protect service availability.</p>
     <div class="voice-preference">
